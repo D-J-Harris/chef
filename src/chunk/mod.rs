@@ -14,6 +14,7 @@ pub enum Operation {
 pub struct Chunk {
     code: Vec<Operation>,
     constants: Vec<Value>,
+    lines: Vec<u32>,
 }
 
 impl Chunk {
@@ -21,11 +22,13 @@ impl Chunk {
         Self {
             code: Vec::new(),
             constants: Vec::new(),
+            lines: Vec::new(),
         }
     }
 
-    pub fn write(&mut self, operation: Operation) {
+    pub fn write(&mut self, operation: Operation, line: u32) {
         self.code.push(operation);
+        self.lines.push(line);
     }
 
     /// Add constant to [`Chunk`], and return its index.
