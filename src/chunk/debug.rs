@@ -9,9 +9,9 @@ impl Chunk {
         while offset < self.code.len() {
             let line = unsafe { self.lines.get_unchecked(offset) };
             if offset > 0 && line == unsafe { self.lines.get_unchecked(offset - 1) } {
-                print!("{offset:<4} {:>9}  ", "|");
+                print!("{offset:0>4} {:>9}  ", "|");
             } else {
-                print!("{offset:<4} {line:>9}  ");
+                print!("{offset:0>4} {line:>9}  ");
             }
             let operation = unsafe { self.code.get_unchecked(offset) };
             match self.disassemble_instruction(&operation, offset) {
@@ -30,7 +30,7 @@ impl Chunk {
         match operation {
             Operation::Return => Some(self.disassemble_simple_instruction(operation, offset)),
             Operation::Constant(index) => {
-                self.disassemble_constant_instruction(operation, offset, *index)
+                self.disassemble_constant_instruction(operation, offset, *index as usize)
             }
         }
     }

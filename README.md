@@ -13,3 +13,7 @@ cargo install
 ## Features
 
 - 
+
+## TODO
+
+- Change `Operation` enum to not carry data. How does this impact performance, with improved cache locality of the enum
