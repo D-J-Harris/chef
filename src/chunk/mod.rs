@@ -9,12 +9,13 @@ type ConstantIndex = u8;
 pub enum Operation {
     Return,
     Constant(ConstantIndex),
+    Negation,
 }
 
 pub struct Chunk {
-    code: Vec<Operation>,
-    constants: Vec<Value>,
-    lines: Vec<u32>,
+    pub code: Vec<Operation>,
+    pub constants: Vec<Value>,
+    pub lines: Vec<u32>,
 }
 
 impl Chunk {
