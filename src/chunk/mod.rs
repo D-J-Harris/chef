@@ -9,7 +9,11 @@ type ConstantIndex = u8;
 pub enum Operation {
     Return,
     Constant(ConstantIndex),
-    Negation,
+    Negate,
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
 }
 
 pub struct Chunk {

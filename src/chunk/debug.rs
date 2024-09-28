@@ -30,7 +30,11 @@ impl Chunk {
             Operation::Constant(index) => {
                 self.disassemble_constant_instruction(operation, offset, *index as usize)
             }
-            Operation::Negation => Some(self.disassemble_simple_instruction(operation, offset)),
+            Operation::Negate => Some(self.disassemble_simple_instruction(operation, offset)),
+            Operation::Add => Some(self.disassemble_simple_instruction(operation, offset)),
+            Operation::Subtract => Some(self.disassemble_simple_instruction(operation, offset)),
+            Operation::Multiply => Some(self.disassemble_simple_instruction(operation, offset)),
+            Operation::Divide => Some(self.disassemble_simple_instruction(operation, offset)),
         }
     }
 

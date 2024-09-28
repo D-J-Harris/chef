@@ -1,24 +1,54 @@
-use rust_decimal::Decimal;
+use std::ops::{AddAssign, DivAssign, MulAssign, Neg, SubAssign};
 
-/// Value derives Copy to enable value copy across from chunks to the VM
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Value {
-    Number(Decimal),
+    Number(f64),
 }
 
-pub enum ValueNegationResult {
+#[derive(PartialEq, Eq)]
+pub enum ValueOperationResult {
     Ok,
     Error,
 }
 
 impl Value {
-    pub fn negate(&mut self) -> ValueNegationResult {
+    pub fn negate(&mut self) -> ValueOperationResult {
         match self {
-            Value::Number(decimal) => match decimal.is_sign_positive() {
-                true => decimal.set_sign_negative(true),
-                false => decimal.set_sign_positive(true),
-            },
-        }
-        ValueNegationResult::Ok
+            Value::Number(number) => number.neg(),
+            _ => return ValueOperationResult::Error,
+        };
+        ValueOperationResult::Ok
+    }
+
+    pub fn add(&mut self, rhs: Value) -> ValueOperationResult {
+        match (self, rhs) {
+            (Value::Number(a), Value::Number(b)) => a.add_assign(b),
+            _ => return ValueOperationResult::Error,
+        };
+        ValueOperationResult::Ok
+    }
+
+    pub fn sub(&mut self, rhs: Value) -> ValueOperationResult {
+        match (self, rhs) {
+            (Value::Number(a), Value::Number(b)) => a.sub_assign(b),
+            _ => return ValueOperationResult::Error,
+        };
+        ValueOperationResult::Ok
+    }
+
+    pub fn mul(&mut self, rhs: Value) -> ValueOperationResult {
+        match (self, rhs) {
+            (Value::Number(a), Value::Number(b)) => a.mul_assign(b),
+            _ => return ValueOperationResult::Error,
+        };
+        ValueOperationResult::Ok
+    }
+
+    pub fn div(&mut self, rhs: Value) -> ValueOperationResult {
+        match (self, rhs) {
+            (Value::Number(a), Value::Number(b)) => a.div_assign(b),
+            _ => return ValueOperationResult::Error,
+        };
+        ValueOperationResult::Ok
     }
 }
