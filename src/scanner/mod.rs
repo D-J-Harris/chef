@@ -1,8 +1,11 @@
+use std::collections::HashMap;
+
 use token::{Token, TokenKind};
 
 pub mod token;
 
 pub struct Scanner<'source> {
+    identifiers: HashMap<&'static str, TokenKind>,
     source: &'source str,
     start: usize,
     current: usize,
@@ -11,11 +14,29 @@ pub struct Scanner<'source> {
 
 impl<'source> Scanner<'source> {
     pub fn new(source: &'source str) -> Self {
+        let mut identifiers = HashMap::with_capacity(16);
+        identifiers.insert("pairs_with", TokenKind::And);
+        identifiers.insert("dish", TokenKind::Class);
+        identifiers.insert("needs_more_salt", TokenKind::Else);
+        identifiers.insert("bland", TokenKind::False);
+        identifiers.insert("stir", TokenKind::For);
+        identifiers.insert("recipe", TokenKind::Fun);
+        identifiers.insert("taste", TokenKind::If);
+        identifiers.insert("missing_ingredient", TokenKind::Nil);
+        identifiers.insert("alternatively", TokenKind::Or);
+        identifiers.insert("garnish", TokenKind::Print);
+        identifiers.insert("plate_up", TokenKind::Return);
+        identifiers.insert("heres_one_i_made_earlier", TokenKind::Super);
+        identifiers.insert("this_dish", TokenKind::This);
+        identifiers.insert("delicious", TokenKind::True);
+        identifiers.insert("ingredient", TokenKind::Var);
+        identifiers.insert("mix_until", TokenKind::While);
         Self {
             source,
             start: 0,
             current: 0,
             line: 1,
+            identifiers,
         }
     }
 
@@ -124,7 +145,11 @@ impl<'source> Scanner<'source> {
             }
             self.current += 1;
         }
-        self.make_token(TokenKind::Identifier)
+        let kind = match self.identifiers.get(self.lexeme()) {
+            Some(kind) => *kind,
+            None => TokenKind::Identifier,
+        };
+        self.make_token(kind)
     }
 
     fn lexeme(&self) -> &'source str {
