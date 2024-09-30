@@ -1,27 +1,58 @@
-use chunk::Chunk;
-use chunk::Operation;
-use value::Value;
+use std::env;
+use std::io;
+use std::io::Write;
+use std::process::exit;
+
+use scanner::token::TokenKind;
+use scanner::Scanner;
 use vm::Vm;
 
 mod chunk;
+mod compiler;
+mod scanner;
 mod value;
 mod vm;
 
 fn main() {
     let mut vm = Vm::new();
-    let mut chunk = Chunk::new();
-    let constant_index = chunk.add_constant(Value::Number(1.2_f64)).unwrap();
-    chunk.write(Operation::Constant(constant_index), 1);
-    let constant_index = chunk.add_constant(Value::Number(3.4_f64)).unwrap();
-    chunk.write(Operation::Constant(constant_index), 1);
-    chunk.write(Operation::Add, 1);
+    let args = env::args().collect::<Vec<String>>();
 
-    let constant_index = chunk.add_constant(Value::Number(5.6_f64)).unwrap();
-    chunk.write(Operation::Constant(constant_index), 1);
-    chunk.write(Operation::Divide, 1);
+    match args.len() {
+        1 => repl(vm),
+        2 => run_file(vm, &unsafe { args.get_unchecked(1) }),
+        0 | 3.. => {
+            eprintln!("Usage: chef [path]");
+            exit(64)
+        }
+    }
+}
 
-    chunk.write(Operation::Negate, 146);
-    chunk.write(Operation::Return, 146);
-    let result = vm.run(&chunk);
-    print!("{result:?}");
+fn repl(vm: Vm) {
+    let mut buf = String::new();
+    loop {
+        print!("chef > ");
+        io::stdout().flush().expect("Could not write to stdout");
+        std::io::stdin()
+            .read_line(&mut buf)
+            .expect("Could not read user input");
+        // TODO: interpret
+        println!("{}", buf.strip_suffix('\n').unwrap());
+    }
+}
+
+fn run_file(vm: Vm, path: &str) {
+    let Ok(mut source) = std::fs::read_to_string(path) else {
+        eprintln!("Could not read File");
+        exit(74);
+    };
+    source.push('\0');
+    let mut scanner = Scanner::new(source.as_str());
+    loop {
+        let token = scanner.scan_token();
+        println!("{token:?}");
+        if token.kind == TokenKind::Eof {
+            break;
+        }
+    }
+    // TODO: exit codes for compile or runtime errors
 }

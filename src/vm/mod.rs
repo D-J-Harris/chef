@@ -96,4 +96,9 @@ impl Vm {
         }
         InterpretResult::RuntimeError
     }
+
+    pub fn interpret(source: &str) -> InterpretResult {
+        // compile()
+        InterpretResult::Ok
+    }
 }
