@@ -7,20 +7,25 @@ Bootstrapped in Rust (the book uses C), using only `std`
 ## Installation
 
 ```rust
-cargo install
+cargo install chef
 ```
 
 ## Usage
 
+```rust
+cargo run --features debug-print-code ./example.chef
+```
+
 ## Features
 
--
+- `debug-print-code` - print out the disassembled chunk at the end of the compile step
+- `debug-trace-execution` - print out each disassembled instruction during the interpret step
 
 ## TODO
 
-- [ ] Change `Operation` enum to not carry data. How does this impact performance, with improved cache locality of the enum
-- [ ] Move from HashMap for identifiers (and parse rules?) to a trie structure
-- [ ] How can performance be improved by moving into unsafe and dealing with string pointers directly?
+- [ ] Change `Operation` and `Value` enums to not carry data through use of `union`
+- [ ] Move from HashMap for identifiers (and parse rules) to a trie structure
+- [ ] Macros and better runtime and compile errors for `Vm`
 
 ## Challenges
 
@@ -33,8 +38,4 @@ The book notes a number of stretch challenges, which I have compiled below
 
 ## Decisions
 
-- Just like the source material, the character set is restricted to UTF-8 which enables us to scan the source code one byte at a time. The encoding of the source code is checked at runtime
-
-## Debugging
-
-Build with feature `vm-trace` to optionally print instruction disassembly to stdout
+- Just like the source material, the character set is restricted to UTF-8 which enables us to scan the source code one byte at a time. The encoding of the source code is checked to be UTF-8 at runtime

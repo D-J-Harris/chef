@@ -28,6 +28,7 @@ impl Compiler<'_> {
             ParseFunctionKind::Unary => Self::unary(self),
             ParseFunctionKind::Binary => Self::binary(self),
             ParseFunctionKind::Number => Self::number(self),
+            ParseFunctionKind::Literal => Self::literal(self),
         }
     }
 
@@ -69,6 +70,15 @@ impl Compiler<'_> {
         };
         self.emit_constant(Value::Number(constant));
     }
+
+    fn literal(&mut self) {
+        match self.previous.kind {
+            TokenKind::Nil => self.emit_operation(Operation::Nil),
+            TokenKind::True => self.emit_operation(Operation::True),
+            TokenKind::False => self.emit_operation(Operation::False),
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -93,6 +103,7 @@ enum ParseFunctionKind {
     Unary,
     Binary,
     Number,
+    Literal,
 }
 
 pub struct ParseRule {
@@ -246,7 +257,7 @@ impl Precedence {
                 precedence: Precedence::None,
             },
             TokenKind::False => ParseRule {
-                prefix: ParseFunctionKind::None,
+                prefix: ParseFunctionKind::Literal,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },
@@ -266,7 +277,7 @@ impl Precedence {
                 precedence: Precedence::None,
             },
             TokenKind::Nil => ParseRule {
-                prefix: ParseFunctionKind::None,
+                prefix: ParseFunctionKind::Literal,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },
@@ -296,7 +307,7 @@ impl Precedence {
                 precedence: Precedence::None,
             },
             TokenKind::True => ParseRule {
-                prefix: ParseFunctionKind::None,
+                prefix: ParseFunctionKind::Literal,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },

@@ -149,7 +149,7 @@ impl<'source> Scanner<'source> {
             }
             self.current += 1;
         }
-        let kind = match self.identifiers.get(&self.source[self.start..self.current]) {
+        let kind = match self.identifiers.get(self.lexeme()) {
             Some(kind) => *kind,
             None => TokenKind::Identifier,
         };

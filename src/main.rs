@@ -47,6 +47,9 @@ fn run_file(mut vm: Vm, path: &str) {
     match vm.interpret(&source) {
         vm::InterpretResult::Ok => (),
         vm::InterpretResult::CompileError => exit(65),
-        vm::InterpretResult::RuntimeError => exit(70),
+        vm::InterpretResult::RuntimeError(line, err) => {
+            eprintln!("[Line {line}] Runtime Error: {err}");
+            exit(70)
+        }
     }
 }

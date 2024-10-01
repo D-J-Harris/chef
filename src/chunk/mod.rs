@@ -15,6 +15,9 @@ pub enum Operation {
     Subtract,
     Multiply,
     Divide,
+    Nil,
+    True,
+    False,
 }
 
 #[derive(Clone)]
