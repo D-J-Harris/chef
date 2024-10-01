@@ -4,6 +4,7 @@ version = "0.0.0"
 edition = "2021"
 
 [features]
-vm-trace = []
+debug-trace-execution = []
+debug-print-code = []
 
 [dependencies]

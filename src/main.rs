@@ -3,8 +3,6 @@ use std::io;
 use std::io::Write;
 use std::process::exit;
 
-use scanner::token::TokenKind;
-use scanner::Scanner;
 use vm::Vm;
 
 mod chunk;
@@ -14,45 +12,41 @@ mod value;
 mod vm;
 
 fn main() {
-    let mut vm = Vm::new();
+    let vm = Vm::new();
     let args = env::args().collect::<Vec<String>>();
 
     match args.len() {
         1 => repl(vm),
         2 => run_file(vm, &unsafe { args.get_unchecked(1) }),
-        0 | 3.. => {
+        _ => {
             eprintln!("Usage: chef [path]");
             exit(64)
         }
     }
 }
 
-fn repl(vm: Vm) {
+fn repl(mut vm: Vm) {
     let mut buf = String::new();
     loop {
         print!("chef > ");
-        io::stdout().flush().expect("Could not write to stdout");
-        std::io::stdin()
+        io::stdout().flush().expect("Could not flush stdout.");
+        io::stdin()
             .read_line(&mut buf)
-            .expect("Could not read user input");
-        // TODO: interpret
-        println!("{}", buf.strip_suffix('\n').unwrap());
+            .expect("Could not read user input.");
+        buf.push('\0');
+        vm.interpret(&buf);
     }
 }
 
-fn run_file(vm: Vm, path: &str) {
+fn run_file(mut vm: Vm, path: &str) {
     let Ok(mut source) = std::fs::read_to_string(path) else {
         eprintln!("Could not read File");
         exit(74);
     };
     source.push('\0');
-    let mut scanner = Scanner::new(source.as_str());
-    loop {
-        let token = scanner.scan_token();
-        println!("{token:?}");
-        if token.kind == TokenKind::Eof {
-            break;
-        }
+    match vm.interpret(&source) {
+        vm::InterpretResult::Ok => (),
+        vm::InterpretResult::CompileError => exit(65),
+        vm::InterpretResult::RuntimeError => exit(70),
     }
-    // TODO: exit codes for compile or runtime errors
 }

@@ -19,7 +19,7 @@ cargo install
 ## TODO
 
 - [ ] Change `Operation` enum to not carry data. How does this impact performance, with improved cache locality of the enum
-- [ ] Move from HashMap for identifiers to a trie structure
+- [ ] Move from HashMap for identifiers (and parse rules?) to a trie structure
 - [ ] How can performance be improved by moving into unsafe and dealing with string pointers directly?
 
 ## Challenges

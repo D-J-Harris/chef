@@ -50,7 +50,7 @@ impl Chunk {
         constant_index: usize,
     ) -> Option<usize> {
         let constant = self.constants.get(constant_index)?;
-        println!("{operation:?} {constant:?}");
+        println!("{operation:?} [constant: {constant:?}]");
         Some(offset + 1)
     }
 }

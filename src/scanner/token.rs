@@ -1,4 +1,4 @@
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum TokenKind {
     // Single-character tokens.
     LeftParen,
@@ -47,9 +47,19 @@ pub enum TokenKind {
     Eof,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Token<'source> {
     pub kind: TokenKind,
     pub lexeme: &'source str,
     pub line: usize,
+}
+
+impl<'source> Token<'source> {
+    pub fn initial() -> Token<'source> {
+        Token {
+            kind: TokenKind::Error,
+            lexeme: "Found initial token.",
+            line: 1,
+        }
+    }
 }

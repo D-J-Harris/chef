@@ -5,7 +5,8 @@ mod debug;
 
 type ConstantIndex = u8;
 
-#[derive(Debug)]
+// TODO: remove Clone
+#[derive(Debug, Clone)]
 pub enum Operation {
     Return,
     Constant(ConstantIndex),
@@ -16,10 +17,11 @@ pub enum Operation {
     Divide,
 }
 
+#[derive(Clone)]
 pub struct Chunk {
     pub code: Vec<Operation>,
     pub constants: Vec<Value>,
-    pub lines: Vec<u32>,
+    pub lines: Vec<usize>,
 }
 
 impl Chunk {
@@ -31,7 +33,7 @@ impl Chunk {
         }
     }
 
-    pub fn write(&mut self, operation: Operation, line: u32) {
+    pub fn write(&mut self, operation: Operation, line: usize) {
         self.code.push(operation);
         self.lines.push(line);
     }

@@ -50,7 +50,7 @@ impl<'source> Scanner<'source> {
         self.peek() == b'\0'
     }
 
-    pub fn scan_token(&mut self) -> Token {
+    pub fn scan_token(&mut self) -> Token<'source> {
         self.skip_whitespace();
         self.start = self.current;
         if self.is_at_end() {
@@ -92,7 +92,11 @@ impl<'source> Scanner<'source> {
         }
     }
 
-    fn make_token(&self, kind: TokenKind) -> Token {
+    fn lexeme(&self) -> &'source str {
+        &self.source[self.start..self.current]
+    }
+
+    fn make_token(&self, kind: TokenKind) -> Token<'source> {
         Token {
             kind,
             lexeme: self.lexeme(),
@@ -100,7 +104,7 @@ impl<'source> Scanner<'source> {
         }
     }
 
-    fn make_error_token(&self, message: &'source str) -> Token {
+    fn make_error_token(&self, message: &'static str) -> Token<'source> {
         Token {
             kind: TokenKind::Error,
             lexeme: message,
@@ -108,7 +112,7 @@ impl<'source> Scanner<'source> {
         }
     }
 
-    fn make_string_token(&mut self) -> Token {
+    fn make_string_token(&mut self) -> Token<'source> {
         while self.peek() != b'"' && !self.is_at_end() {
             if self.advance() == b'\n' {
                 self.line += 1
@@ -121,7 +125,7 @@ impl<'source> Scanner<'source> {
         self.make_token(TokenKind::String)
     }
 
-    fn make_number_token(&mut self) -> Token {
+    fn make_number_token(&mut self) -> Token<'source> {
         while is_digit(self.peek()) {
             self.current += 1
         }
@@ -137,7 +141,7 @@ impl<'source> Scanner<'source> {
         self.make_token(TokenKind::Number)
     }
 
-    fn make_identifier_token(&mut self) -> Token {
+    fn make_identifier_token(&mut self) -> Token<'source> {
         loop {
             let byte = self.peek();
             if !is_digit(byte) && !is_alpha(byte) {
@@ -145,15 +149,11 @@ impl<'source> Scanner<'source> {
             }
             self.current += 1;
         }
-        let kind = match self.identifiers.get(self.lexeme()) {
+        let kind = match self.identifiers.get(&self.source[self.start..self.current]) {
             Some(kind) => *kind,
             None => TokenKind::Identifier,
         };
         self.make_token(kind)
-    }
-
-    fn lexeme(&self) -> &'source str {
-        &self.source[self.start..self.current]
     }
 
     fn is_match(&mut self, byte: u8) -> bool {

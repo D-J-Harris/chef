@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 
 use crate::chunk::Chunk;
 use crate::chunk::Operation;
+use crate::compiler;
 use crate::value::Value;
 use crate::value::ValueOperationResult;
 
@@ -24,10 +25,11 @@ impl Vm {
     }
 
     pub fn run(&mut self, chunk: &Chunk) -> InterpretResult {
+        println!("==== Interpreting Chunk ====");
         for (offset, operation) in chunk.code.iter().enumerate() {
-            if cfg!(feature = "vm-trace") {
+            if cfg!(feature = "debug-trace-execution") {
+                println!("Value stack: {:?}", self.value_stack);
                 let _ = chunk.disassemble_instruction(offset);
-                println!("Value stack: {:?}", self.value_stack)
             }
             match operation {
                 Operation::Return => {
@@ -97,8 +99,10 @@ impl Vm {
         InterpretResult::RuntimeError
     }
 
-    pub fn interpret(source: &str) -> InterpretResult {
-        // compile()
-        InterpretResult::Ok
+    pub fn interpret(&mut self, source: &str) -> InterpretResult {
+        match compiler::compile(source) {
+            Some(chunk) => self.run(&chunk),
+            None => return InterpretResult::CompileError,
+        }
     }
 }
