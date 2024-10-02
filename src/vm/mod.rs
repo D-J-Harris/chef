@@ -45,7 +45,7 @@ impl Vm {
                             "No constants initialised.".into(),
                         );
                     };
-                    self.value_stack.push_back(*constant);
+                    self.value_stack.push_back(constant.clone()); // TODO: remove Clone
                 }
                 Operation::Negate => {
                     let Some(constant) = self.value_stack.back_mut() else {
@@ -124,7 +124,10 @@ impl Vm {
                             "No constants initialised.".into(),
                         );
                     };
-                    let result = constant.falsey();
+                    let result = match constant.falsey() {
+                        Ok(b) => b,
+                        Err(e) => return RuntimeError(chunk.lines[offset], e),
+                    };
                     self.value_stack.push_back(Value::Boolean(result))
                 }
                 Operation::Equal => {

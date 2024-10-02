@@ -1,11 +1,12 @@
 use std::fmt::Debug;
 use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Number(f64),
     Boolean(bool),
     Nil,
+    String(String),
 }
 
 impl Value {
@@ -20,6 +21,7 @@ impl Value {
     pub fn add_assign(&mut self, rhs: Value) -> Result<(), String> {
         match (self, rhs) {
             (Value::Number(a), Value::Number(b)) => a.add_assign(b),
+            (Value::String(a), Value::String(b)) => a.push_str(&b),
             _ => return Err("Operands must be numbers.".into()),
         };
         Ok(())
@@ -49,11 +51,12 @@ impl Value {
         Ok(())
     }
 
-    pub fn falsey(&self) -> bool {
+    pub fn falsey(&self) -> Result<bool, String> {
         match self {
-            Value::Number(_) => false,
-            Value::Boolean(b) => !b,
-            Value::Nil => true,
+            Value::Number(_) => Ok(false),
+            Value::Boolean(b) => Ok(!b),
+            Value::Nil => Ok(true),
+            Value::String(_) => Err("Operand for bang operator cannot be string.".into()),
         }
     }
 
@@ -62,6 +65,7 @@ impl Value {
             (Value::Nil, Value::Nil) => true,
             (Value::Boolean(a), Value::Boolean(b)) => *a == b,
             (Value::Number(a), Value::Number(b)) => *a == b,
+            (Value::String(a), Value::String(b)) => *a == b,
             _ => false,
         }
     }

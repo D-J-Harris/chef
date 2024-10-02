@@ -29,6 +29,7 @@ impl Compiler<'_> {
             ParseFunctionKind::Binary => Self::binary(self),
             ParseFunctionKind::Number => Self::number(self),
             ParseFunctionKind::Literal => Self::literal(self),
+            ParseFunctionKind::String => Self::string(self),
         }
     }
 
@@ -81,7 +82,7 @@ impl Compiler<'_> {
 
     fn number(&mut self) {
         let Ok(constant) = self.previous.lexeme.parse() else {
-            self.error("Could not case lexeme to number");
+            self.error("Could not cast lexeme to number");
             return;
         };
         self.emit_constant(Value::Number(constant));
@@ -94,6 +95,12 @@ impl Compiler<'_> {
             TokenKind::False => self.emit_operation(Operation::False),
             _ => unreachable!(),
         }
+    }
+
+    fn string(&mut self) {
+        let lexeme_len = self.previous.lexeme.len();
+        let constant = (&self.previous.lexeme[1..{ lexeme_len - 1 }]).to_owned();
+        self.emit_constant(Value::String(constant));
     }
 }
 
@@ -120,6 +127,7 @@ enum ParseFunctionKind {
     Binary,
     Number,
     Literal,
+    String,
 }
 
 pub struct ParseRule {
@@ -248,7 +256,7 @@ impl Precedence {
                 precedence: Precedence::None,
             },
             TokenKind::String => ParseRule {
-                prefix: ParseFunctionKind::None,
+                prefix: ParseFunctionKind::String,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },
