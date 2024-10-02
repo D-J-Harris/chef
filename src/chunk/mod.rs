@@ -22,7 +22,11 @@ pub enum Operation {
     Equal,
     Greater,
     Less,
-    Print
+    Print,
+    Pop,
+    DefineGlobal(ConstantIndex),
+    GetGlobal(ConstantIndex),
+    SetGlobal(ConstantIndex),
 }
 
 #[derive(Clone)]

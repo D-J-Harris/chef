@@ -1,1 +1,5 @@
-missing_ingredient
+ingredient breakfast = "beignets";
+ingredient beverage = "cafe au lait";
+breakfast = "beignets with " + beverage;
+
+garnish breakfast;

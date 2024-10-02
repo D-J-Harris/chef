@@ -12,16 +12,24 @@ impl Compiler<'_> {
             self.error("Expect expression.");
             return;
         };
-        self.execute_rule(prefix_rule);
+        self.execute_rule(prefix_rule, precedence);
 
         while precedence <= Precedence::get_rule(self.current.kind).precedence {
             self.advance();
             let infix_rule = Precedence::get_rule(self.previous.kind).infix;
-            self.execute_rule(infix_rule);
+            self.execute_rule(infix_rule, precedence);
+        }
+
+        if Self::can_assign(precedence) && self.r#match(TokenKind::Equal) {
+            self.error("Invalid assignment target.");
         }
     }
 
-    fn execute_rule(&mut self, kind: ParseFunctionKind) {
+    fn can_assign(precedence: Precedence) -> bool {
+        precedence <= Precedence::Assignment
+    }
+
+    fn execute_rule(&mut self, kind: ParseFunctionKind, precedence: Precedence) {
         match kind {
             ParseFunctionKind::None => {}
             ParseFunctionKind::Grouping => Self::grouping(self),
@@ -30,6 +38,7 @@ impl Compiler<'_> {
             ParseFunctionKind::Number => Self::number(self),
             ParseFunctionKind::Literal => Self::literal(self),
             ParseFunctionKind::String => Self::string(self),
+            ParseFunctionKind::Variable => Self::variable(self, Self::can_assign(precedence)),
         }
     }
 
@@ -102,9 +111,26 @@ impl Compiler<'_> {
         let constant = (&self.previous.lexeme[1..{ lexeme_len - 1 }]).to_owned();
         self.emit_constant(Value::String(constant));
     }
+
+    fn variable(&mut self, can_assign: bool) {
+        self.named_variable(self.previous.lexeme, can_assign);
+    }
+
+    fn named_variable(&mut self, token_name: &str, can_assign: bool) {
+        let Some(constant_index) = self.constant_identifier(token_name) else {
+            self.error(&format!("No named variable '{token_name}'"));
+            return;
+        };
+        if can_assign && self.r#match(TokenKind::Equal) {
+            self.expression();
+            self.emit_operation(Operation::SetGlobal(constant_index));
+        } else {
+            self.emit_operation(Operation::GetGlobal(constant_index));
+        }
+    }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Precedence {
     None,
     Assignment, // =
@@ -128,6 +154,7 @@ enum ParseFunctionKind {
     Number,
     Literal,
     String,
+    Variable,
 }
 
 pub struct ParseRule {
@@ -251,7 +278,7 @@ impl Precedence {
                 precedence: Precedence::Comparison,
             },
             TokenKind::Identifier => ParseRule {
-                prefix: ParseFunctionKind::None,
+                prefix: ParseFunctionKind::Variable,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },

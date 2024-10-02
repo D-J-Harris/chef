@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::collections::VecDeque;
 
 use crate::chunk::Chunk;
@@ -17,17 +18,21 @@ pub enum InterpretResult {
 
 pub struct Vm {
     value_stack: VecDeque<Value>,
+    global_identifiers: HashMap<String, Value>,
 }
 
 impl Vm {
     pub fn new() -> Self {
         Self {
             value_stack: VecDeque::new(),
+            global_identifiers: HashMap::new(),
         }
     }
 
     pub fn run(&mut self, chunk: &Chunk) -> InterpretResult {
-        println!("==== Interpreting Chunk ====");
+        if cfg!(feature = "debug-trace-execution") {
+            println!("==== Interpreting Chunk ====");
+        }
         for (offset, operation) in chunk.code.iter().enumerate() {
             if cfg!(feature = "debug-trace-execution") {
                 println!("Value stack: {:?}", self.value_stack);
@@ -176,7 +181,53 @@ impl Vm {
                             "No constants initialised.".into(),
                         );
                     };
-                    println!("{constant:?}");
+                    println!("{constant}");
+                }
+                Operation::Pop => drop(self.value_stack.pop_back()),
+                Operation::DefineGlobal(index) => {
+                    let Some(Value::String(name)) = chunk.constants.get(*index as usize) else {
+                        return RuntimeError(
+                            chunk.lines[offset],
+                            "No variable initialised with this name.".into(),
+                        );
+                    };
+                    let Some(constant) = self.value_stack.pop_back() else {
+                        return RuntimeError(
+                            chunk.lines[offset],
+                            "No constants initialised.".into(),
+                        );
+                    };
+                    self.global_identifiers.insert(name.to_owned(), constant);
+                }
+                Operation::GetGlobal(index) => {
+                    let Some(Value::String(name)) = chunk.constants.get(*index as usize) else {
+                        return RuntimeError(
+                            chunk.lines[offset],
+                            "No variable initialised with this name.".into(),
+                        );
+                    };
+                    let Some(constant) = self.global_identifiers.get(name) else {
+                        return RuntimeError(
+                            chunk.lines[offset],
+                            "No constant initialised with name '{name}'.".into(),
+                        );
+                    };
+                    self.value_stack.push_back(constant.clone()); // TODO: remove Clone
+                }
+                Operation::SetGlobal(index) => {
+                    let Some(Value::String(name)) = chunk.constants.get(*index as usize) else {
+                        return RuntimeError(
+                            chunk.lines[offset],
+                            "No variable initialised with this name.".into(),
+                        );
+                    };
+                    let Some(constant) = self.value_stack.pop_back() else {
+                        return RuntimeError(
+                            chunk.lines[offset],
+                            "No constants initialised.".into(),
+                        );
+                    };
+                    self.global_identifiers.insert(name.to_owned(), constant);
                 }
             }
         }

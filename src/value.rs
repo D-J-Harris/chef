@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -7,6 +7,17 @@ pub enum Value {
     Boolean(bool),
     Nil,
     String(String),
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Number(number) => write!(f, "{number}"),
+            Value::Boolean(boolean) => write!(f, "{boolean}"),
+            Value::Nil => write!(f, "nil"),
+            Value::String(string) => write!(f, "{string}"),
+        }
+    }
 }
 
 impl Value {

@@ -27,7 +27,10 @@ impl Chunk {
         }
         match operation {
             Operation::Return => Some(self.disassemble_simple_instruction(operation, offset)),
-            Operation::Constant(index) => {
+            Operation::Constant(index)
+            | Operation::DefineGlobal(index)
+            | Operation::GetGlobal(index)
+            | Operation::SetGlobal(index) => {
                 self.disassemble_constant_instruction(operation, offset, *index as usize)
             }
             Operation::Negate
@@ -42,7 +45,8 @@ impl Chunk {
             | Operation::Equal
             | Operation::Greater
             | Operation::Less
-            | Operation::Print => Some(self.disassemble_simple_instruction(operation, offset)),
+            | Operation::Print
+            | Operation::Pop => Some(self.disassemble_simple_instruction(operation, offset)),
         }
     }
 

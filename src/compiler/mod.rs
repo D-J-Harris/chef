@@ -60,12 +60,49 @@ impl<'source> Compiler<'source> {
     }
 
     fn declaration(&mut self) {
-        self.statement()
+        if self.r#match(TokenKind::Var) {
+            self.var_declaration();
+        } else {
+            self.statement();
+        }
+        if self.panic_mode {
+            self.synchronise();
+        }
+    }
+
+    fn var_declaration(&mut self) {
+        let Some(global_constant_index) = self.parse_variable("Expect variable name.") else {
+            self.error("Reached constant limit.");
+            return;
+        };
+        if self.r#match(TokenKind::Equal) {
+            self.expression();
+        } else {
+            self.emit_operation(Operation::Nil);
+        }
+        self.consume(TokenKind::Semicolon, "Expect ';' after value.");
+        self.define_variable(global_constant_index);
+    }
+
+    fn parse_variable(&mut self, error_message: &str) -> Option<u8> {
+        self.consume(TokenKind::Identifier, error_message);
+        self.constant_identifier(&self.previous.lexeme)
+    }
+
+    fn constant_identifier(&mut self, token_name: &str) -> Option<u8> {
+        self.compiling_chunk
+            .add_constant(Value::String(token_name.into()))
+    }
+
+    fn define_variable(&mut self, constant_index: u8) {
+        self.emit_operation(Operation::DefineGlobal(constant_index));
     }
 
     fn statement(&mut self) {
         if self.r#match(TokenKind::Print) {
             self.print_statement();
+        } else {
+            self.expression_statement();
         }
     }
 
@@ -73,6 +110,12 @@ impl<'source> Compiler<'source> {
         self.expression();
         self.consume(TokenKind::Semicolon, "Expect ';' after value.");
         self.emit_operation(Operation::Print);
+    }
+
+    fn expression_statement(&mut self) {
+        self.expression();
+        self.consume(TokenKind::Semicolon, "Expect ';' after expression.");
+        self.emit_operation(Operation::Pop);
     }
 
     fn advance(&mut self) {
@@ -133,5 +176,26 @@ impl<'source> Compiler<'source> {
         }
         eprintln!(": {message}");
         self.had_error = true;
+    }
+
+    fn synchronise(&mut self) {
+        self.panic_mode = false;
+        while self.current.kind != TokenKind::Eof {
+            if self.previous.kind == TokenKind::Semicolon {
+                return;
+            }
+            match self.current.kind {
+                TokenKind::Class
+                | TokenKind::Fun
+                | TokenKind::Var
+                | TokenKind::For
+                | TokenKind::If
+                | TokenKind::While
+                | TokenKind::Print
+                | TokenKind::Return => return,
+                _ => (),
+            }
+            self.advance();
+        }
     }
 }
