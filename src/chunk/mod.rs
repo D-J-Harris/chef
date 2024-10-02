@@ -22,6 +22,7 @@ pub enum Operation {
     Equal,
     Greater,
     Less,
+    Print
 }
 
 #[derive(Clone)]

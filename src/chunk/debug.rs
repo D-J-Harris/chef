@@ -41,7 +41,8 @@ impl Chunk {
             | Operation::Not
             | Operation::Equal
             | Operation::Greater
-            | Operation::Less => Some(self.disassemble_simple_instruction(operation, offset)),
+            | Operation::Less
+            | Operation::Print => Some(self.disassemble_simple_instruction(operation, offset)),
         }
     }
 

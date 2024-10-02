@@ -35,7 +35,6 @@ impl Vm {
             }
             match operation {
                 Operation::Return => {
-                    println!("Returned {:?}", self.value_stack.pop_back());
                     return InterpretOk;
                 }
                 Operation::Constant(index) => {
@@ -169,6 +168,15 @@ impl Vm {
                         Ok(result) => self.value_stack.push_back(Value::Boolean(result)),
                         Err(e) => return RuntimeError(chunk.lines[offset], e),
                     };
+                }
+                Operation::Print => {
+                    let Some(constant) = self.value_stack.pop_back() else {
+                        return RuntimeError(
+                            chunk.lines[offset],
+                            "No constants initialised.".into(),
+                        );
+                    };
+                    println!("{constant:?}");
                 }
             }
         }

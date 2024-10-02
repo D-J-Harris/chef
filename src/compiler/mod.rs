@@ -37,13 +37,42 @@ impl<'source> Compiler<'source> {
 
     pub fn compile(&mut self) -> Option<Chunk> {
         self.advance();
-        self.expression();
-        self.consume(TokenKind::Eof, "Expect end of expression.");
+        while !self.r#match(TokenKind::Eof) {
+            self.declaration();
+        }
         self.end_compiler();
         match self.had_error {
             true => None,
             false => Some(self.compiling_chunk.clone()),
         }
+    }
+
+    fn r#match(&mut self, token_kind: TokenKind) -> bool {
+        if !self.check_current_token(token_kind) {
+            return false;
+        }
+        self.advance();
+        true
+    }
+
+    fn check_current_token(&self, token_kind: TokenKind) -> bool {
+        self.current.kind == token_kind
+    }
+
+    fn declaration(&mut self) {
+        self.statement()
+    }
+
+    fn statement(&mut self) {
+        if self.r#match(TokenKind::Print) {
+            self.print_statement();
+        }
+    }
+
+    fn print_statement(&mut self) {
+        self.expression();
+        self.consume(TokenKind::Semicolon, "Expect ';' after value.");
+        self.emit_operation(Operation::Print);
     }
 
     fn advance(&mut self) {
