@@ -1,5 +1,4 @@
-ingredient breakfast = "beignets";
-ingredient beverage = "cafe au lait";
-"beignets with " + tea;
-
-garnish breakfast;
+{
+    ingredient a = "outer";
+    ingredient a = "inner";
+}

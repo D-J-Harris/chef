@@ -7,6 +7,11 @@ use crate::{
 
 mod precedence;
 
+struct Local<'source> {
+    depth: Option<u8>,
+    name: &'source str,
+}
+
 pub fn compile(source: &str) -> Option<Chunk> {
     let mut compiler = Compiler::new(source);
     compiler.compile()
@@ -19,6 +24,9 @@ pub struct Compiler<'source> {
     current: Token<'source>,
     had_error: bool,
     panic_mode: bool,
+    local_count: u8,
+    scope_depth: u8,
+    locals: Vec<Local<'source>>,
 }
 
 impl<'source> Compiler<'source> {
@@ -32,6 +40,9 @@ impl<'source> Compiler<'source> {
             current: initial_token,
             had_error: false,
             panic_mode: false,
+            local_count: 0,
+            scope_depth: 0,
+            locals: Vec::with_capacity(u8::MAX as usize),
         }
     }
 
@@ -86,7 +97,45 @@ impl<'source> Compiler<'source> {
 
     fn parse_variable(&mut self, error_message: &str) -> Option<u8> {
         self.consume(TokenKind::Identifier, error_message);
+        self.declare_variable();
+        if self.scope_depth > 0 {
+            // Return dummy variable since locals aren't looked up by name at runntime
+            return Some(0);
+        }
+
         self.constant_identifier(&self.previous.lexeme)
+    }
+
+    fn declare_variable(&mut self) {
+        if self.scope_depth == 0 {
+            return;
+        }
+        let variable_name = self.previous.lexeme;
+
+        // Detect clashing variable names in current scope (does not include shadowing, which is allowed).
+        let mut has_match_name_error = false;
+        for local in self.locals.iter().rev() {
+            if let Some(depth) = local.depth {
+                if depth < self.scope_depth {
+                    break;
+                }
+            }
+            if local.name == variable_name {
+                has_match_name_error = true
+            }
+        }
+        if has_match_name_error {
+            self.error("Already a variable with this name in this scope.");
+        }
+
+        self.add_local(variable_name)
+    }
+
+    fn add_local(&mut self, name: &'source str) {
+        self.locals.push(Local {
+            depth: Some(self.scope_depth),
+            name,
+        });
     }
 
     fn constant_identifier(&mut self, token_name: &str) -> Option<u8> {
@@ -95,15 +144,54 @@ impl<'source> Compiler<'source> {
     }
 
     fn define_variable(&mut self, constant_index: u8) {
+        if self.scope_depth > 0 {
+            return;
+        }
         self.emit_operation(Operation::DefineGlobal(constant_index));
     }
 
     fn statement(&mut self) {
         if self.r#match(TokenKind::Print) {
             self.print_statement();
+        } else if self.r#match(TokenKind::LeftBrace) {
+            self.begin_scope();
+            self.block();
+            self.end_scope();
         } else {
             self.expression_statement();
         }
+    }
+
+    fn begin_scope(&mut self) {
+        self.scope_depth += 1;
+    }
+
+    fn end_scope(&mut self) {
+        self.scope_depth -= 1;
+        while let Some(local) = self.locals.last() {
+            if self.local_count == 0 {
+                break;
+            }
+            match local.depth {
+                None => break,
+                Some(local_depth) => {
+                    if local_depth <= self.scope_depth {
+                        break;
+                    }
+                }
+            }
+            self.emit_operation(Operation::Pop);
+            self.local_count -= 1
+        }
+    }
+
+    fn block(&mut self) {
+        while !self.check_current_token(TokenKind::RightBrace)
+            && !self.check_current_token(TokenKind::Eof)
+        {
+            self.declaration();
+        }
+        self.consume(TokenKind::RightBrace, "Expect '}' after block.");
     }
 
     fn print_statement(&mut self) {
