@@ -1,5 +1,5 @@
 ingredient breakfast = "beignets";
 ingredient beverage = "cafe au lait";
-breakfast = "beignets with " + beverage;
+"beignets with " + tea;
 
 garnish breakfast;

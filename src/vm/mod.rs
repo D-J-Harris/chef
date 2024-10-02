@@ -209,7 +209,7 @@ impl Vm {
                     let Some(constant) = self.global_identifiers.get(name) else {
                         return RuntimeError(
                             chunk.lines[offset],
-                            "No constant initialised with name '{name}'.".into(),
+                            format!("No constant initialised with name '{name}'."),
                         );
                     };
                     self.value_stack.push_back(constant.clone()); // TODO: remove Clone
