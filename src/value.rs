@@ -8,50 +8,75 @@ pub enum Value {
     Nil,
 }
 
-#[derive(PartialEq, Eq)]
-pub enum ValueOperationResult {
-    Ok,
-    Error,
-}
-
 impl Value {
-    pub fn negate(&mut self) -> ValueOperationResult {
+    pub fn negate(&mut self) -> Result<(), String> {
         match self {
             Value::Number(number) => *number = -*number,
-            _ => return ValueOperationResult::Error,
+            _ => return Err("Operand must be a number.".into()),
         };
-        ValueOperationResult::Ok
+        Ok(())
     }
 
-    pub fn add(&mut self, rhs: Value) -> ValueOperationResult {
+    pub fn add_assign(&mut self, rhs: Value) -> Result<(), String> {
         match (self, rhs) {
             (Value::Number(a), Value::Number(b)) => a.add_assign(b),
-            _ => return ValueOperationResult::Error,
+            _ => return Err("Operands must be numbers.".into()),
         };
-        ValueOperationResult::Ok
+        Ok(())
     }
 
-    pub fn sub(&mut self, rhs: Value) -> ValueOperationResult {
+    pub fn sub_assign(&mut self, rhs: Value) -> Result<(), String> {
         match (self, rhs) {
             (Value::Number(a), Value::Number(b)) => a.sub_assign(b),
-            _ => return ValueOperationResult::Error,
+            _ => return Err("Operands must be numbers.".into()),
         };
-        ValueOperationResult::Ok
+        Ok(())
     }
 
-    pub fn mul(&mut self, rhs: Value) -> ValueOperationResult {
+    pub fn mul_assign(&mut self, rhs: Value) -> Result<(), String> {
         match (self, rhs) {
             (Value::Number(a), Value::Number(b)) => a.mul_assign(b),
-            _ => return ValueOperationResult::Error,
+            _ => return Err("Operands must be numbers.".into()),
         };
-        ValueOperationResult::Ok
+        Ok(())
     }
 
-    pub fn div(&mut self, rhs: Value) -> ValueOperationResult {
+    pub fn div_assign(&mut self, rhs: Value) -> Result<(), String> {
         match (self, rhs) {
             (Value::Number(a), Value::Number(b)) => a.div_assign(b),
-            _ => return ValueOperationResult::Error,
+            _ => return Err("Operands must be numbers.".into()),
         };
-        ValueOperationResult::Ok
+        Ok(())
+    }
+
+    pub fn falsey(&self) -> bool {
+        match self {
+            Value::Number(_) => false,
+            Value::Boolean(b) => !b,
+            Value::Nil => true,
+        }
+    }
+
+    pub fn is_equal(&self, rhs: Value) -> bool {
+        match (self, rhs) {
+            (Value::Nil, Value::Nil) => true,
+            (Value::Boolean(a), Value::Boolean(b)) => *a == b,
+            (Value::Number(a), Value::Number(b)) => *a == b,
+            _ => false,
+        }
+    }
+
+    pub fn is_greater(&self, rhs: Value) -> Result<bool, String> {
+        match (self, rhs) {
+            (Value::Number(a), Value::Number(b)) => Ok(*a > b),
+            _ => return Err("Operands must be numbers.".into()),
+        }
+    }
+
+    pub fn is_less(&self, rhs: Value) -> Result<bool, String> {
+        match (self, rhs) {
+            (Value::Number(a), Value::Number(b)) => Ok(*a < b),
+            _ => return Err("Operands must be numbers.".into()),
+        }
     }
 }

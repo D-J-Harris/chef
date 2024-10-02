@@ -46,6 +46,7 @@ impl Compiler<'_> {
         self.parse_precedence(Precedence::Unary);
         match operator_kind {
             TokenKind::Minus => self.emit_operation(Operation::Negate),
+            TokenKind::Bang => self.emit_operation(Operation::Not),
             _ => unreachable!(),
         }
     }
@@ -59,6 +60,21 @@ impl Compiler<'_> {
             TokenKind::Minus => self.emit_operation(Operation::Subtract),
             TokenKind::Star => self.emit_operation(Operation::Multiply),
             TokenKind::Slash => self.emit_operation(Operation::Divide),
+            TokenKind::EqualEqual => self.emit_operation(Operation::Equal),
+            TokenKind::Greater => self.emit_operation(Operation::Greater),
+            TokenKind::Less => self.emit_operation(Operation::Less),
+            TokenKind::BangEqual => {
+                self.emit_operation(Operation::Equal);
+                self.emit_operation(Operation::Not);
+            }
+            TokenKind::GreaterEqual => {
+                self.emit_operation(Operation::Less);
+                self.emit_operation(Operation::Not);
+            }
+            TokenKind::LessEqual => {
+                self.emit_operation(Operation::Greater);
+                self.emit_operation(Operation::Not);
+            }
             _ => unreachable!(),
         }
     }
@@ -187,14 +203,14 @@ impl Precedence {
                 precedence: Precedence::Factor,
             },
             TokenKind::Bang => ParseRule {
-                prefix: ParseFunctionKind::None,
+                prefix: ParseFunctionKind::Unary,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },
             TokenKind::BangEqual => ParseRule {
                 prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
+                infix: ParseFunctionKind::Binary,
+                precedence: Precedence::Equality,
             },
             TokenKind::Equal => ParseRule {
                 prefix: ParseFunctionKind::None,
@@ -203,28 +219,28 @@ impl Precedence {
             },
             TokenKind::EqualEqual => ParseRule {
                 prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
+                infix: ParseFunctionKind::Binary,
+                precedence: Precedence::Equality,
             },
             TokenKind::Greater => ParseRule {
                 prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
+                infix: ParseFunctionKind::Binary,
+                precedence: Precedence::Comparison,
             },
             TokenKind::GreaterEqual => ParseRule {
                 prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
+                infix: ParseFunctionKind::Binary,
+                precedence: Precedence::Comparison,
             },
             TokenKind::Less => ParseRule {
                 prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
+                infix: ParseFunctionKind::Binary,
+                precedence: Precedence::Comparison,
             },
             TokenKind::LessEqual => ParseRule {
                 prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
+                infix: ParseFunctionKind::Binary,
+                precedence: Precedence::Comparison,
             },
             TokenKind::Identifier => ParseRule {
                 prefix: ParseFunctionKind::None,

@@ -28,6 +28,7 @@ fn main() {
 fn repl(mut vm: Vm) {
     let mut buf = String::new();
     loop {
+        buf.clear();
         print!("chef > ");
         io::stdout().flush().expect("Could not flush stdout.");
         io::stdin()

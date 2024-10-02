@@ -18,6 +18,10 @@ pub enum Operation {
     Nil,
     True,
     False,
+    Not,
+    Equal,
+    Greater,
+    Less,
 }
 
 #[derive(Clone)]
