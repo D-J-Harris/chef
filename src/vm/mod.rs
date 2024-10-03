@@ -229,6 +229,28 @@ impl Vm {
                     };
                     self.global_identifiers.insert(name.to_owned(), constant);
                 }
+                Operation::GetLocal(index) => {
+                    let Some(value) = self.value_stack.get(*index as usize) else {
+                        return RuntimeError(
+                            chunk.lines[offset],
+                            format!("No value at index '{index}' in stack."),
+                        );
+                    };
+                    self.value_stack.push_back(value.clone());
+                }
+                Operation::SetLocal(index) => {
+                    let Some(replacement_value) = self.value_stack.back() else {
+                        return RuntimeError(chunk.lines[offset], format!("No values in stack."));
+                    };
+                    let replacement_value = replacement_value.clone();
+                    let Some(mut_value) = self.value_stack.get_mut(*index as usize) else {
+                        return RuntimeError(
+                            chunk.lines[offset],
+                            format!("No value at index '{index}' in stack."),
+                        );
+                    };
+                    *mut_value = replacement_value.clone()
+                }
             }
         }
         RuntimeError(0, "Execution ended early.".into())

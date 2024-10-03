@@ -15,6 +15,7 @@ impl Chunk {
                 }
             }
         }
+        println!("Final Value Stack: {:?}", self.constants);
     }
 
     pub fn disassemble_instruction(&self, offset: usize) -> Option<usize> {
@@ -32,6 +33,9 @@ impl Chunk {
             | Operation::GetGlobal(index)
             | Operation::SetGlobal(index) => {
                 self.disassemble_constant_instruction(operation, offset, *index as usize)
+            }
+            Operation::GetLocal(index) | Operation::SetLocal(index) => {
+                self.disassemble_byte_instruction(operation, offset, *index as usize)
             }
             Operation::Negate
             | Operation::Add
@@ -64,5 +68,15 @@ impl Chunk {
         let constant = self.constants.get(constant_index)?;
         println!("{operation:?} [constant: {constant:?}]");
         Some(offset + 1)
+    }
+
+    fn disassemble_byte_instruction(
+        &self,
+        operation: &Operation,
+        offset: usize,
+        slot_index: usize,
+    ) -> Option<usize> {
+        println!("{operation:?} [slot: {slot_index}]");
+        Some(offset + 2)
     }
 }

@@ -117,16 +117,40 @@ impl Compiler<'_> {
     }
 
     fn named_variable(&mut self, token_name: &str, can_assign: bool) {
-        let Some(constant_index) = self.constant_identifier(token_name) else {
-            self.error(&format!("No named variable '{token_name}'"));
-            return;
+        let (get_operation, set_operation) = match self.resolve_local(token_name) {
+            Some(constant_index) => (
+                Operation::GetLocal(constant_index),
+                Operation::SetLocal(constant_index),
+            ),
+            None => {
+                let Some(index) = self.constant_identifier(token_name) else {
+                    self.error("Reached constant limit.");
+                    return;
+                };
+                (Operation::GetGlobal(index), Operation::SetGlobal(index))
+            }
         };
+
         if can_assign && self.r#match(TokenKind::Equal) {
             self.expression();
-            self.emit_operation(Operation::SetGlobal(constant_index));
+            self.emit_operation(set_operation);
         } else {
-            self.emit_operation(Operation::GetGlobal(constant_index));
+            self.emit_operation(get_operation);
         }
+    }
+
+    fn resolve_local(&mut self, token_name: &str) -> Option<u8> {
+        for (index, local) in self.locals.iter().enumerate().rev() {
+            if token_name == local.name {
+                if local.depth.is_none() {
+                    self.error("Can't read local variable in its own initializer.");
+                }
+                // Safety: locals Vec initialised with capacity u8::MAX
+                return Some(index as u8);
+            }
+        }
+        // Assume global variable
+        return None;
     }
 }
 

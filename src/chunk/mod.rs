@@ -27,6 +27,8 @@ pub enum Operation {
     DefineGlobal(ConstantIndex),
     GetGlobal(ConstantIndex),
     SetGlobal(ConstantIndex),
+    GetLocal(ConstantIndex),
+    SetLocal(ConstantIndex),
 }
 
 #[derive(Clone)]

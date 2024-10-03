@@ -1,4 +1,9 @@
 {
-    ingredient a = "outer";
-    ingredient a = "inner";
+  ingredient a = "outer";
+  {
+    ingredient b = a;
+    a = "inner";
+    garnish b;
+  }
+  garnish a;
 }

@@ -7,6 +7,7 @@ use crate::{
 
 mod precedence;
 
+#[derive(Debug)]
 struct Local<'source> {
     depth: Option<u8>,
     name: &'source str,
@@ -24,7 +25,6 @@ pub struct Compiler<'source> {
     current: Token<'source>,
     had_error: bool,
     panic_mode: bool,
-    local_count: u8,
     scope_depth: u8,
     locals: Vec<Local<'source>>,
 }
@@ -40,7 +40,6 @@ impl<'source> Compiler<'source> {
             current: initial_token,
             had_error: false,
             panic_mode: false,
-            local_count: 0,
             scope_depth: 0,
             locals: Vec::with_capacity(u8::MAX as usize),
         }
@@ -82,7 +81,7 @@ impl<'source> Compiler<'source> {
     }
 
     fn var_declaration(&mut self) {
-        let Some(global_constant_index) = self.parse_variable("Expect variable name.") else {
+        let Some(constant_index) = self.parse_variable("Expect variable name.") else {
             self.error("Reached constant limit.");
             return;
         };
@@ -92,7 +91,7 @@ impl<'source> Compiler<'source> {
             self.emit_operation(Operation::Nil);
         }
         self.consume(TokenKind::Semicolon, "Expect ';' after value.");
-        self.define_variable(global_constant_index);
+        self.define_variable(constant_index);
     }
 
     fn parse_variable(&mut self, error_message: &str) -> Option<u8> {
@@ -102,7 +101,6 @@ impl<'source> Compiler<'source> {
             // Return dummy variable since locals aren't looked up by name at runntime
             return Some(0);
         }
-
         self.constant_identifier(&self.previous.lexeme)
     }
 
@@ -127,15 +125,12 @@ impl<'source> Compiler<'source> {
         if has_match_name_error {
             self.error("Already a variable with this name in this scope.");
         }
-
         self.add_local(variable_name)
     }
 
     fn add_local(&mut self, name: &'source str) {
-        self.locals.push(Local {
-            depth: Some(self.scope_depth),
-            name,
-        });
+        // "Declare" depth with None, it will later be initialised when variable defined
+        self.locals.push(Local { depth: None, name });
     }
 
     fn constant_identifier(&mut self, token_name: &str) -> Option<u8> {
@@ -145,6 +140,12 @@ impl<'source> Compiler<'source> {
 
     fn define_variable(&mut self, constant_index: u8) {
         if self.scope_depth > 0 {
+            // Mark as initialised
+            let Some(local) = self.locals.last_mut() else {
+                self.error("No local scopes defined.");
+                return;
+            };
+            local.depth = Some(self.scope_depth);
             return;
         }
         self.emit_operation(Operation::DefineGlobal(constant_index));
@@ -168,20 +169,18 @@ impl<'source> Compiler<'source> {
 
     fn end_scope(&mut self) {
         self.scope_depth -= 1;
-        while let Some(local) = self.locals.last() {
-            if self.local_count == 0 {
-                break;
-            }
-            match local.depth {
-                None => break,
-                Some(local_depth) => {
-                    if local_depth <= self.scope_depth {
-                        break;
-                    }
+        let mut emit_count = 0;
+        for local in self.locals.iter().rev() {
+            if let Some(local_depth) = local.depth {
+                if local_depth <= self.scope_depth {
+                    break;
                 }
             }
+            emit_count += 1;
+        }
+        for _ in 0..emit_count {
+            self.locals.pop();
             self.emit_operation(Operation::Pop);
-            self.local_count -= 1
         }
     }
 
