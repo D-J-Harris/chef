@@ -33,33 +33,33 @@ impl Vm {
         if cfg!(feature = "debug-trace-execution") {
             println!("==== Interpreting Chunk ====");
         }
-        for (offset, operation) in chunk.code.iter().enumerate() {
+        let mut ip = 0;
+        loop {
+            let operation = chunk
+                .code
+                .get(ip)
+                .expect(&format!("No operation found at instruction pointer {ip}"));
             if cfg!(feature = "debug-trace-execution") {
                 println!("Value stack: {:?}", self.value_stack);
-                let _ = chunk.disassemble_instruction(offset);
+                let _ = chunk.disassemble_instruction(ip);
             }
-            match operation {
+            ip += 1;
+            match &operation {
                 Operation::Return => {
                     return InterpretOk;
                 }
                 Operation::Constant(index) => {
                     let Some(constant) = chunk.constants.get(*index as usize) else {
-                        return RuntimeError(
-                            chunk.lines[offset],
-                            "No constants initialised.".into(),
-                        );
+                        return RuntimeError(chunk.lines[ip], "No constants initialised.".into());
                     };
                     self.value_stack.push_back(constant.clone()); // TODO: remove Clone
                 }
                 Operation::Negate => {
                     let Some(constant) = self.value_stack.back_mut() else {
-                        return RuntimeError(
-                            chunk.lines[offset],
-                            "No constants initialised.".into(),
-                        );
+                        return RuntimeError(chunk.lines[ip], "No constants initialised.".into());
                     };
                     if let Err(e) = constant.negate() {
-                        return RuntimeError(chunk.lines[offset], e);
+                        return RuntimeError(chunk.lines[ip], e);
                     };
                 }
                 Operation::Add => {
@@ -67,13 +67,13 @@ impl Vm {
                         (self.value_stack.pop_back(), self.value_stack.pop_back())
                     else {
                         return RuntimeError(
-                            chunk.lines[offset],
+                            chunk.lines[ip],
                             "Not enough constants initialised.".into(),
                         );
                     };
                     match a.add_assign(b) {
                         Ok(()) => self.value_stack.push_back(a),
-                        Err(e) => return RuntimeError(chunk.lines[offset], e),
+                        Err(e) => return RuntimeError(chunk.lines[ip], e),
                     };
                 }
                 Operation::Subtract => {
@@ -81,13 +81,13 @@ impl Vm {
                         (self.value_stack.pop_back(), self.value_stack.pop_back())
                     else {
                         return RuntimeError(
-                            chunk.lines[offset],
+                            chunk.lines[ip],
                             "Not enough constants initialised.".into(),
                         );
                     };
                     match a.sub_assign(b) {
                         Ok(()) => self.value_stack.push_back(a),
-                        Err(e) => return RuntimeError(chunk.lines[offset], e),
+                        Err(e) => return RuntimeError(chunk.lines[ip], e),
                     };
                 }
                 Operation::Multiply => {
@@ -95,13 +95,13 @@ impl Vm {
                         (self.value_stack.pop_back(), self.value_stack.pop_back())
                     else {
                         return RuntimeError(
-                            chunk.lines[offset],
+                            chunk.lines[ip],
                             "Not enough constants initialised.".into(),
                         );
                     };
                     match a.mul_assign(b) {
                         Ok(()) => self.value_stack.push_back(a),
-                        Err(e) => return RuntimeError(chunk.lines[offset], e),
+                        Err(e) => return RuntimeError(chunk.lines[ip], e),
                     };
                 }
                 Operation::Divide => {
@@ -109,13 +109,13 @@ impl Vm {
                         (self.value_stack.pop_back(), self.value_stack.pop_back())
                     else {
                         return RuntimeError(
-                            chunk.lines[offset],
+                            chunk.lines[ip],
                             "Not enough constants initialised.".into(),
                         );
                     };
                     match a.div_assign(b) {
                         Ok(()) => self.value_stack.push_back(a),
-                        Err(e) => return RuntimeError(chunk.lines[offset], e),
+                        Err(e) => return RuntimeError(chunk.lines[ip], e),
                     };
                 }
                 Operation::Nil => self.value_stack.push_back(Value::Nil),
@@ -123,14 +123,11 @@ impl Vm {
                 Operation::False => self.value_stack.push_back(Value::Boolean(false)),
                 Operation::Not => {
                     let Some(constant) = self.value_stack.pop_back() else {
-                        return RuntimeError(
-                            chunk.lines[offset],
-                            "No constants initialised.".into(),
-                        );
+                        return RuntimeError(chunk.lines[ip], "No constants initialised.".into());
                     };
                     let result = match constant.falsey() {
                         Ok(b) => b,
-                        Err(e) => return RuntimeError(chunk.lines[offset], e),
+                        Err(e) => return RuntimeError(chunk.lines[ip], e),
                     };
                     self.value_stack.push_back(Value::Boolean(result))
                 }
@@ -139,7 +136,7 @@ impl Vm {
                         (self.value_stack.pop_back(), self.value_stack.pop_back())
                     else {
                         return RuntimeError(
-                            chunk.lines[offset],
+                            chunk.lines[ip],
                             "Not enough constants initialised.".into(),
                         );
                     };
@@ -151,13 +148,13 @@ impl Vm {
                         (self.value_stack.pop_back(), self.value_stack.pop_back())
                     else {
                         return RuntimeError(
-                            chunk.lines[offset],
+                            chunk.lines[ip],
                             "Not enough constants initialised.".into(),
                         );
                     };
                     match a.is_greater(b) {
                         Ok(result) => self.value_stack.push_back(Value::Boolean(result)),
-                        Err(e) => return RuntimeError(chunk.lines[offset], e),
+                        Err(e) => return RuntimeError(chunk.lines[ip], e),
                     };
                 }
                 Operation::Less => {
@@ -165,21 +162,18 @@ impl Vm {
                         (self.value_stack.pop_back(), self.value_stack.pop_back())
                     else {
                         return RuntimeError(
-                            chunk.lines[offset],
+                            chunk.lines[ip],
                             "Not enough constants initialised.".into(),
                         );
                     };
                     match a.is_less(b) {
                         Ok(result) => self.value_stack.push_back(Value::Boolean(result)),
-                        Err(e) => return RuntimeError(chunk.lines[offset], e),
+                        Err(e) => return RuntimeError(chunk.lines[ip], e),
                     };
                 }
                 Operation::Print => {
                     let Some(constant) = self.value_stack.pop_back() else {
-                        return RuntimeError(
-                            chunk.lines[offset],
-                            "No constants initialised.".into(),
-                        );
+                        return RuntimeError(chunk.lines[ip], "No constants initialised.".into());
                     };
                     println!("{constant}");
                 }
@@ -187,28 +181,25 @@ impl Vm {
                 Operation::DefineGlobal(index) => {
                     let Some(Value::String(name)) = chunk.constants.get(*index as usize) else {
                         return RuntimeError(
-                            chunk.lines[offset],
+                            chunk.lines[ip],
                             "No variable initialised with this name.".into(),
                         );
                     };
                     let Some(constant) = self.value_stack.pop_back() else {
-                        return RuntimeError(
-                            chunk.lines[offset],
-                            "No constants initialised.".into(),
-                        );
+                        return RuntimeError(chunk.lines[ip], "No constants initialised.".into());
                     };
                     self.global_identifiers.insert(name.to_owned(), constant);
                 }
                 Operation::GetGlobal(index) => {
                     let Some(Value::String(name)) = chunk.constants.get(*index as usize) else {
                         return RuntimeError(
-                            chunk.lines[offset],
+                            chunk.lines[ip],
                             "No variable initialised with this name.".into(),
                         );
                     };
                     let Some(constant) = self.global_identifiers.get(name) else {
                         return RuntimeError(
-                            chunk.lines[offset],
+                            chunk.lines[ip],
                             format!("No constant initialised with name '{name}'."),
                         );
                     };
@@ -217,22 +208,19 @@ impl Vm {
                 Operation::SetGlobal(index) => {
                     let Some(Value::String(name)) = chunk.constants.get(*index as usize) else {
                         return RuntimeError(
-                            chunk.lines[offset],
+                            chunk.lines[ip],
                             "No variable initialised with this name.".into(),
                         );
                     };
                     let Some(constant) = self.value_stack.pop_back() else {
-                        return RuntimeError(
-                            chunk.lines[offset],
-                            "No constants initialised.".into(),
-                        );
+                        return RuntimeError(chunk.lines[ip], "No constants initialised.".into());
                     };
                     self.global_identifiers.insert(name.to_owned(), constant);
                 }
                 Operation::GetLocal(index) => {
                     let Some(value) = self.value_stack.get(*index as usize) else {
                         return RuntimeError(
-                            chunk.lines[offset],
+                            chunk.lines[ip],
                             format!("No value at index '{index}' in stack."),
                         );
                     };
@@ -240,20 +228,35 @@ impl Vm {
                 }
                 Operation::SetLocal(index) => {
                     let Some(replacement_value) = self.value_stack.back() else {
-                        return RuntimeError(chunk.lines[offset], format!("No values in stack."));
+                        return RuntimeError(chunk.lines[ip], format!("No values in stack."));
                     };
                     let replacement_value = replacement_value.clone();
                     let Some(mut_value) = self.value_stack.get_mut(*index as usize) else {
                         return RuntimeError(
-                            chunk.lines[offset],
+                            chunk.lines[ip],
                             format!("No value at index '{index}' in stack."),
                         );
                     };
                     *mut_value = replacement_value.clone()
                 }
+                Operation::JumpIfFalse(jump) => {
+                    let Some(value) = self.value_stack.back() else {
+                        return RuntimeError(chunk.lines[ip], format!("No values in stack."));
+                    };
+                    match value.falsey() {
+                        Ok(falsy) => {
+                            if falsy {
+                                ip += *jump as usize
+                            }
+                        }
+                        Err(e) => {
+                            return RuntimeError(chunk.lines[ip], e);
+                        }
+                    }
+                }
+                Operation::Jump(jump) => ip += *jump as usize,
             }
         }
-        RuntimeError(0, "Execution ended early.".into())
     }
 
     pub fn interpret(&mut self, source: &str) -> InterpretResult {

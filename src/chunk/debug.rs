@@ -37,6 +37,9 @@ impl Chunk {
             Operation::GetLocal(index) | Operation::SetLocal(index) => {
                 self.disassemble_byte_instruction(operation, offset, *index as usize)
             }
+            Operation::JumpIfFalse(jump) | Operation::Jump(jump) => {
+                self.disassemble_jump_instruction(operation, offset, *jump)
+            }
             Operation::Negate
             | Operation::Add
             | Operation::Subtract
@@ -77,6 +80,16 @@ impl Chunk {
         slot_index: usize,
     ) -> Option<usize> {
         println!("{operation:?} [slot: {slot_index}]");
-        Some(offset + 2)
+        Some(offset + 1)
+    }
+
+    fn disassemble_jump_instruction(
+        &self,
+        operation: &Operation,
+        offset: usize,
+        jump: u8,
+    ) -> Option<usize> {
+        println!("{operation:?} [jump: {jump}]");
+        Some(offset + 1)
     }
 }

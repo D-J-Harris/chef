@@ -1,9 +1,9 @@
-{
-  ingredient a = "outer";
-  {
-    ingredient b = a;
-    a = "inner";
-    garnish b;
+taste (!delicious) {
+  taste (3 + 5 == 8) {
+    garnish "chocolate";
   }
-  garnish a;
+  garnish "beetroot";
+} needs_more_salt {
+  garnish "mash potato";
 }
+garnish "finished";

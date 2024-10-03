@@ -1,3 +1,5 @@
+use std::u8;
+
 use crate::scanner::token::Token;
 use crate::{
     chunk::{Chunk, Operation},
@@ -154,6 +156,8 @@ impl<'source> Compiler<'source> {
     fn statement(&mut self) {
         if self.r#match(TokenKind::Print) {
             self.print_statement();
+        } else if self.r#match(TokenKind::If) {
+            self.if_statement();
         } else if self.r#match(TokenKind::LeftBrace) {
             self.begin_scope();
             self.block();
@@ -197,6 +201,42 @@ impl<'source> Compiler<'source> {
         self.expression();
         self.consume(TokenKind::Semicolon, "Expect ';' after value.");
         self.emit_operation(Operation::Print);
+    }
+
+    fn if_statement(&mut self) {
+        self.consume(TokenKind::LeftParen, "Expect '(' after 'if'.");
+        self.expression();
+        self.consume(TokenKind::RightParen, "Expect ')' after condition.");
+
+        self.emit_operation(Operation::JumpIfFalse(u8::MAX));
+        let num_operations_if = self.compiling_chunk.code.len();
+        self.emit_operation(Operation::Pop);
+        self.statement();
+        self.emit_operation(Operation::Jump(u8::MAX));
+        let num_operations_else = self.compiling_chunk.code.len();
+        self.patch_jump(num_operations_if);
+        self.emit_operation(Operation::Pop);
+        if self.r#match(TokenKind::Else) {
+            self.statement();
+        }
+        self.patch_jump(num_operations_else);
+    }
+
+    fn patch_jump(&mut self, num_operations_before: usize) {
+        let num_operations_after = self.compiling_chunk.code.len();
+        if num_operations_after - num_operations_before > u8::MAX as usize {
+            self.error("Too much code to jump over.");
+            return;
+        }
+        match self.compiling_chunk.code.get_mut(num_operations_before - 1) {
+            Some(Operation::JumpIfFalse(jump)) | Some(Operation::Jump(jump)) => {
+                *jump = (num_operations_after - num_operations_before) as u8
+            }
+            _ => {
+                self.error("Could not find reference to added jump_if_false operation.");
+                return;
+            }
+        }
     }
 
     fn expression_statement(&mut self) {

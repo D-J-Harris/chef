@@ -29,6 +29,8 @@ pub enum Operation {
     SetGlobal(ConstantIndex),
     GetLocal(ConstantIndex),
     SetLocal(ConstantIndex),
+    JumpIfFalse(ConstantIndex),
+    Jump(ConstantIndex),
 }
 
 #[derive(Clone)]

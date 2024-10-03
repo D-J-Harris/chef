@@ -67,7 +67,7 @@ impl Value {
             Value::Number(_) => Ok(false),
             Value::Boolean(b) => Ok(!b),
             Value::Nil => Ok(true),
-            Value::String(_) => Err("Operand for bang operator cannot be string.".into()),
+            Value::String(_) => Err("Operand for falsiness cannot be string.".into()),
         }
     }
 

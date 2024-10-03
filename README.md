@@ -27,6 +27,7 @@ cargo run --features debug-print-code ./example.chef
 - [ ] Move from HashMap for identifiers (and parse rules) to a trie structure
 - [ ] Macros and better runtime and compile errors for `Vm`
 - [ ] Understand more about the performance and practical differences between String cloning (Rust) and the String heap allocation exercise from the "Strings" chapter (C). Does this implementation need a GC?
+- [ ] Clean up chunk debugging once `Operation` has been amending to carry no data
 
 ## Challenges
 
