@@ -1,6 +1,5 @@
-taste (!delicious alternatively !delicious) {
-  garnish "beetroot";
-} needs_more_salt {
-  garnish "mash potato";
+ingredient a = 2;
+mix_while (a >= 0) {
+  garnish "hello";
+  a = a - 1;
 }
-garnish "finished";

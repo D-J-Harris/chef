@@ -255,6 +255,7 @@ impl Vm {
                     }
                 }
                 Operation::Jump(jump) => ip += *jump as usize,
+                Operation::Loop(offset) => ip -= (*offset + 1) as usize,
             }
         }
     }

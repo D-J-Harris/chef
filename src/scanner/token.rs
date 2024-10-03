@@ -41,7 +41,7 @@ pub enum TokenKind {
     This,   // this_dish
     True,   // delicious
     Var,    // ingredient
-    While,  // mix_until
+    While,  // mix_while
     // Other.
     Error,
     Eof,

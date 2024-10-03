@@ -38,7 +38,10 @@ impl Chunk {
                 self.disassemble_byte_instruction(operation, offset, *index as usize)
             }
             Operation::JumpIfFalse(jump) | Operation::Jump(jump) => {
-                self.disassemble_jump_instruction(operation, offset, *jump)
+                self.disassemble_jump_instruction(operation, offset, *jump, false)
+            }
+            Operation::Loop(jump) => {
+                self.disassemble_jump_instruction(operation, offset, *jump, true)
             }
             Operation::Negate
             | Operation::Add
@@ -88,8 +91,12 @@ impl Chunk {
         operation: &Operation,
         offset: usize,
         jump: u8,
+        is_jump_backwards: bool,
     ) -> Option<usize> {
-        println!("{operation:?} [jump: {jump}]");
+        println!(
+            "{operation:?} [jump: {}, backwards: {}]",
+            jump, is_jump_backwards
+        );
         Some(offset + 1)
     }
 }

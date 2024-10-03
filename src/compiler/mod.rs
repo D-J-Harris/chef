@@ -158,6 +158,8 @@ impl<'source> Compiler<'source> {
             self.print_statement();
         } else if self.r#match(TokenKind::If) {
             self.if_statement();
+        } else if self.r#match(TokenKind::While) {
+            self.while_statement();
         } else if self.r#match(TokenKind::LeftBrace) {
             self.begin_scope();
             self.block();
@@ -237,6 +239,31 @@ impl<'source> Compiler<'source> {
                 return;
             }
         }
+    }
+
+    fn while_statement(&mut self) {
+        let num_operations_loop_start = self.compiling_chunk.code.len();
+        self.consume(TokenKind::LeftParen, "Expect '(' after 'while'.");
+        self.expression();
+        self.consume(TokenKind::RightParen, "Expect ')' after condition.");
+
+        self.emit_operation(Operation::JumpIfFalse(u8::MAX));
+        let num_operations_exit = self.compiling_chunk.code.len();
+        self.emit_operation(Operation::Pop);
+        self.statement();
+        self.emit_loop(num_operations_loop_start);
+
+        self.patch_jump(num_operations_exit);
+        self.emit_operation(Operation::Pop);
+    }
+
+    fn emit_loop(&mut self, num_operations_loop_start: usize) {
+        let offset = self.compiling_chunk.code.len() - num_operations_loop_start;
+        if offset > u8::MAX as usize {
+            self.error("Too much code to jump over.");
+            return;
+        }
+        self.emit_operation(Operation::Loop(offset as u8));
     }
 
     fn expression_statement(&mut self) {

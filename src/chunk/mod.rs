@@ -4,6 +4,7 @@ use crate::value::Value;
 mod debug;
 
 type ConstantIndex = u8;
+type Offset = u8;
 
 // TODO: remove Clone
 #[derive(Debug, Clone)]
@@ -29,8 +30,9 @@ pub enum Operation {
     SetGlobal(ConstantIndex),
     GetLocal(ConstantIndex),
     SetLocal(ConstantIndex),
-    JumpIfFalse(ConstantIndex),
-    Jump(ConstantIndex),
+    JumpIfFalse(Offset),
+    Jump(Offset),
+    Loop(Offset),
 }
 
 #[derive(Clone)]

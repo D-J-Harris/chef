@@ -30,7 +30,7 @@ impl<'source> Scanner<'source> {
         identifiers.insert("this_dish", TokenKind::This);
         identifiers.insert("delicious", TokenKind::True);
         identifiers.insert("ingredient", TokenKind::Var);
-        identifiers.insert("mix_until", TokenKind::While);
+        identifiers.insert("mix_while", TokenKind::While);
         Self {
             source,
             start: 0,
