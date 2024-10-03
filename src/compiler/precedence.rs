@@ -1,3 +1,5 @@
+use std::u8;
+
 use crate::value::Value;
 
 use crate::{chunk::Operation, scanner::token::TokenKind};
@@ -39,6 +41,8 @@ impl Compiler<'_> {
             ParseFunctionKind::Literal => Self::literal(self),
             ParseFunctionKind::String => Self::string(self),
             ParseFunctionKind::Variable => Self::variable(self, Self::can_assign(precedence)),
+            ParseFunctionKind::And => Self::and(self),
+            ParseFunctionKind::Or => Self::or(self),
         }
     }
 
@@ -152,6 +156,26 @@ impl Compiler<'_> {
         // Assume global variable
         return None;
     }
+
+    fn and(&mut self) {
+        self.emit_operation(Operation::JumpIfFalse(u8::MAX));
+        let operations_before_and = self.compiling_chunk.code.len();
+        self.emit_operation(Operation::Pop);
+        self.parse_precedence(Precedence::And);
+        self.patch_jump(operations_before_and);
+    }
+
+    fn or(&mut self) {
+        self.emit_operation(Operation::JumpIfFalse(u8::MAX));
+        let operations_before_else_jump = self.compiling_chunk.code.len();
+        self.emit_operation(Operation::Jump(u8::MAX));
+        let operations_before_end_jump = self.compiling_chunk.code.len();
+
+        self.patch_jump(operations_before_else_jump);
+        self.emit_operation(Operation::Pop);
+        self.parse_precedence(Precedence::Or);
+        self.patch_jump(operations_before_end_jump);
+    }
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -179,6 +203,8 @@ enum ParseFunctionKind {
     Literal,
     String,
     Variable,
+    And,
+    Or,
 }
 
 pub struct ParseRule {
@@ -318,8 +344,8 @@ impl Precedence {
             },
             TokenKind::And => ParseRule {
                 prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
+                infix: ParseFunctionKind::And,
+                precedence: Precedence::And,
             },
             TokenKind::Class => ParseRule {
                 prefix: ParseFunctionKind::None,
@@ -358,8 +384,8 @@ impl Precedence {
             },
             TokenKind::Or => ParseRule {
                 prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
+                infix: ParseFunctionKind::Or,
+                precedence: Precedence::Or,
             },
             TokenKind::Print => ParseRule {
                 prefix: ParseFunctionKind::None,

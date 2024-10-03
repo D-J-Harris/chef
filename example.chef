@@ -1,7 +1,4 @@
-taste (!delicious) {
-  taste (3 + 5 == 8) {
-    garnish "chocolate";
-  }
+taste (!delicious alternatively !delicious) {
   garnish "beetroot";
 } needs_more_salt {
   garnish "mash potato";
