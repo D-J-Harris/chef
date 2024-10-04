@@ -156,6 +156,8 @@ impl<'source> Compiler<'source> {
     fn statement(&mut self) {
         if self.r#match(TokenKind::Print) {
             self.print_statement();
+        } else if self.r#match(TokenKind::For) {
+            self.for_statement();
         } else if self.r#match(TokenKind::If) {
             self.if_statement();
         } else if self.r#match(TokenKind::While) {
@@ -255,6 +257,53 @@ impl<'source> Compiler<'source> {
 
         self.patch_jump(num_operations_exit);
         self.emit_operation(Operation::Pop);
+    }
+
+    fn for_statement(&mut self) {
+        self.begin_scope();
+        self.consume(TokenKind::LeftParen, "Expect '(' after 'for'.");
+        if self.r#match(TokenKind::Semicolon) {
+            // No initialiser
+        } else if self.r#match(TokenKind::Var) {
+            self.var_declaration();
+        } else {
+            self.expression_statement();
+        }
+        let mut num_operations_loop_start = self.compiling_chunk.code.len();
+
+        // Condition clause.
+        let mut num_operations_exit = None;
+        if !self.r#match(TokenKind::Semicolon) {
+            self.expression();
+            self.consume(TokenKind::Semicolon, "Expect ';' after loop condition.");
+            // Jump out of the loop if the condition is false.
+            self.emit_operation(Operation::JumpIfFalse(u8::MAX));
+            num_operations_exit = Some(self.compiling_chunk.code.len());
+            self.emit_operation(Operation::Pop);
+        }
+
+        // Incremenet clause.
+        if !self.r#match(TokenKind::RightParen) {
+            self.emit_operation(Operation::Jump(u8::MAX));
+            let num_operations_jump = self.compiling_chunk.code.len();
+            let num_operations_increment_start = self.compiling_chunk.code.len();
+            self.expression();
+            self.emit_operation(Operation::Pop);
+            self.consume(TokenKind::RightParen, "Expect ')' after for clauses.");
+            self.emit_loop(num_operations_loop_start);
+            num_operations_loop_start = num_operations_increment_start;
+            self.patch_jump(num_operations_jump);
+        }
+
+        self.statement();
+        self.emit_loop(num_operations_loop_start);
+
+        // Patch exit loop jump from condition clause.
+        if let Some(num_operations_exit) = num_operations_exit {
+            self.patch_jump(num_operations_exit);
+            self.emit_operation(Operation::Pop);
+        }
+        self.end_scope();
     }
 
     fn emit_loop(&mut self, num_operations_loop_start: usize) {

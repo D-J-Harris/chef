@@ -1,5 +1,4 @@
-ingredient a = 2;
-mix_while (a >= 0) {
-  garnish "hello";
-  a = a - 1;
+stir (ingredient i = 0; i < 3; i = i + 1) {
+  garnish i;
 }
+garnish "finished";
