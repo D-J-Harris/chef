@@ -13,13 +13,13 @@ cargo install chef
 ## Usage
 
 ```rust
-cargo run --features debug-print-code ./example.chef
+cargo run --features debug_print_code ./example.chef
 ```
 
 ## Features
 
-- `debug-print-code` - print out the disassembled chunk at the end of the compile step
-- `debug-trace-execution` - print out each disassembled instruction during the interpret step
+- `debug_print_code` - print out the disassembled chunk at the end of the compile step
+- `debug_trace_execution` - print out each disassembled instruction during the interpret step
 
 ## TODO
 
@@ -28,6 +28,8 @@ cargo run --features debug-print-code ./example.chef
 - [ ] Macros and better runtime and compile errors for `Vm`
 - [ ] Understand more about the performance and practical differences between String cloning (Rust) and the String heap allocation exercise from the "Strings" chapter (C). Does this implementation need a GC?
 - [ ] Clean up chunk debugging once `Operation` has been amending to carry no data
+- [ ] Change Option in fixed sized arrays to MaybeUninit and measure performance improvements (unsafe)
+- [ ] Add String interning
 
 ## Challenges
 

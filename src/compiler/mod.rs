@@ -1,5 +1,8 @@
+use std::rc::Rc;
 use std::u8;
 
+use crate::objects::Object;
+use crate::objects::{Function, FunctionKind, ObjectString};
 use crate::scanner::token::Token;
 use crate::{
     chunk::{Chunk, Operation},
@@ -15,13 +18,13 @@ struct Local<'source> {
     name: &'source str,
 }
 
-pub fn compile(source: &str) -> Option<Chunk> {
-    let mut compiler = Compiler::new(source);
+pub fn compile(source: &str) -> Option<Rc<Function>> {
+    let compiler = Compiler::new(source, "", FunctionKind::Script);
     compiler.compile()
 }
 
 pub struct Compiler<'source> {
-    compiling_chunk: Chunk,
+    function: Function,
     scanner: Scanner<'source>,
     previous: Token<'source>,
     current: Token<'source>,
@@ -32,30 +35,44 @@ pub struct Compiler<'source> {
 }
 
 impl<'source> Compiler<'source> {
-    pub fn new(source: &'source str) -> Self {
+    pub fn new(source: &'source str, name: &'source str, function_kind: FunctionKind) -> Self {
         let initial_token = Token::initial();
-        let chunk = Chunk::new();
+        let function = Function::new(name, function_kind);
+        let mut locals = Vec::with_capacity(u8::MAX as usize);
+        locals.push(Local {
+            depth: Some(0),
+            name: "",
+        });
         Self {
-            compiling_chunk: chunk,
+            function,
             scanner: Scanner::new(source),
             previous: initial_token,
             current: initial_token,
             had_error: false,
             panic_mode: false,
             scope_depth: 0,
-            locals: Vec::with_capacity(u8::MAX as usize),
+            locals,
         }
     }
 
-    pub fn compile(&mut self) -> Option<Chunk> {
+    pub fn current_chunk(&mut self) -> &Chunk {
+        &self.function.chunk
+    }
+
+    pub fn current_chunk_mut(&mut self) -> &mut Chunk {
+        &mut self.function.chunk
+    }
+
+    pub fn compile(mut self) -> Option<Rc<Function>> {
         self.advance();
         while !self.r#match(TokenKind::Eof) {
             self.declaration();
         }
-        self.end_compiler();
-        match self.had_error {
+        let had_error = self.had_error;
+        let function = self.end_compiler();
+        match had_error {
             true => None,
-            false => Some(self.compiling_chunk.clone()),
+            false => Some(Rc::new(function)),
         }
     }
 
@@ -136,8 +153,9 @@ impl<'source> Compiler<'source> {
     }
 
     fn constant_identifier(&mut self, token_name: &str) -> Option<u8> {
-        self.compiling_chunk
-            .add_constant(Value::String(token_name.into()))
+        let object_string = Rc::new(ObjectString::new(token_name));
+        self.current_chunk_mut()
+            .add_constant(Value::ObjectValue(Object::String(object_string)))
     }
 
     fn define_variable(&mut self, constant_index: u8) {
@@ -213,11 +231,11 @@ impl<'source> Compiler<'source> {
         self.consume(TokenKind::RightParen, "Expect ')' after condition.");
 
         self.emit_operation(Operation::JumpIfFalse(u8::MAX));
-        let num_operations_if = self.compiling_chunk.code.len();
+        let num_operations_if = self.current_chunk().code.len();
         self.emit_operation(Operation::Pop);
         self.statement();
         self.emit_operation(Operation::Jump(u8::MAX));
-        let num_operations_else = self.compiling_chunk.code.len();
+        let num_operations_else = self.current_chunk().code.len();
         self.patch_jump(num_operations_if);
         self.emit_operation(Operation::Pop);
         if self.r#match(TokenKind::Else) {
@@ -227,12 +245,16 @@ impl<'source> Compiler<'source> {
     }
 
     fn patch_jump(&mut self, num_operations_before: usize) {
-        let num_operations_after = self.compiling_chunk.code.len();
+        let num_operations_after = self.current_chunk().code.len();
         if num_operations_after - num_operations_before > u8::MAX as usize {
             self.error("Too much code to jump over.");
             return;
         }
-        match self.compiling_chunk.code.get_mut(num_operations_before - 1) {
+        match self
+            .current_chunk_mut()
+            .code
+            .get_mut(num_operations_before - 1)
+        {
             Some(Operation::JumpIfFalse(jump)) | Some(Operation::Jump(jump)) => {
                 *jump = (num_operations_after - num_operations_before) as u8
             }
@@ -244,13 +266,13 @@ impl<'source> Compiler<'source> {
     }
 
     fn while_statement(&mut self) {
-        let num_operations_loop_start = self.compiling_chunk.code.len();
+        let num_operations_loop_start = self.current_chunk().code.len();
         self.consume(TokenKind::LeftParen, "Expect '(' after 'while'.");
         self.expression();
         self.consume(TokenKind::RightParen, "Expect ')' after condition.");
 
         self.emit_operation(Operation::JumpIfFalse(u8::MAX));
-        let num_operations_exit = self.compiling_chunk.code.len();
+        let num_operations_exit = self.current_chunk().code.len();
         self.emit_operation(Operation::Pop);
         self.statement();
         self.emit_loop(num_operations_loop_start);
@@ -269,7 +291,7 @@ impl<'source> Compiler<'source> {
         } else {
             self.expression_statement();
         }
-        let mut num_operations_loop_start = self.compiling_chunk.code.len();
+        let mut num_operations_loop_start = self.current_chunk().code.len();
 
         // Condition clause.
         let mut num_operations_exit = None;
@@ -278,15 +300,15 @@ impl<'source> Compiler<'source> {
             self.consume(TokenKind::Semicolon, "Expect ';' after loop condition.");
             // Jump out of the loop if the condition is false.
             self.emit_operation(Operation::JumpIfFalse(u8::MAX));
-            num_operations_exit = Some(self.compiling_chunk.code.len());
+            num_operations_exit = Some(self.current_chunk().code.len());
             self.emit_operation(Operation::Pop);
         }
 
         // Incremenet clause.
         if !self.r#match(TokenKind::RightParen) {
             self.emit_operation(Operation::Jump(u8::MAX));
-            let num_operations_jump = self.compiling_chunk.code.len();
-            let num_operations_increment_start = self.compiling_chunk.code.len();
+            let num_operations_jump = self.current_chunk().code.len();
+            let num_operations_increment_start = self.current_chunk().code.len();
             self.expression();
             self.emit_operation(Operation::Pop);
             self.consume(TokenKind::RightParen, "Expect ')' after for clauses.");
@@ -307,7 +329,7 @@ impl<'source> Compiler<'source> {
     }
 
     fn emit_loop(&mut self, num_operations_loop_start: usize) {
-        let offset = self.compiling_chunk.code.len() - num_operations_loop_start;
+        let offset = self.current_chunk().code.len() - num_operations_loop_start;
         if offset > u8::MAX as usize {
             self.error("Too much code to jump over.");
             return;
@@ -341,18 +363,24 @@ impl<'source> Compiler<'source> {
     }
 
     fn emit_operation(&mut self, operation: Operation) {
-        self.compiling_chunk.write(operation, self.previous.line);
+        let line = self.previous.line;
+        self.current_chunk_mut().write(operation, line);
     }
 
-    fn end_compiler(&mut self) {
+    fn end_compiler(mut self) -> Function {
         self.emit_operation(Operation::Return);
-        if cfg!(feature = "debug-print-code") {
-            self.compiling_chunk.disassemble();
+        if cfg!(feature = "debug_print_code") {
+            let name = match self.function.name.is_empty() {
+                true => "<script>".into(),
+                false => self.function.name.clone(),
+            };
+            self.current_chunk().disassemble(&name);
         }
+        self.function
     }
 
     fn emit_constant(&mut self, constant: Value) {
-        if let Some(constant_index) = self.compiling_chunk.add_constant(constant) {
+        if let Some(constant_index) = self.current_chunk_mut().add_constant(constant) {
             self.emit_operation(Operation::Constant(constant_index));
         }
     }

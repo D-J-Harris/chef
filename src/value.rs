@@ -1,21 +1,26 @@
 use std::fmt::{Debug, Display};
 use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
+use std::rc::Rc;
+
+use crate::objects::{Function, Object, ObjectString};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
+    Uninit,
+    Nil,
     Number(f64),
     Boolean(bool),
-    Nil,
-    String(String),
+    ObjectValue(Object),
 }
 
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Value::Uninit => write!(f, "uninitialized"),
+            Value::Nil => write!(f, "nil"),
             Value::Number(number) => write!(f, "{number}"),
             Value::Boolean(boolean) => write!(f, "{boolean}"),
-            Value::Nil => write!(f, "nil"),
-            Value::String(string) => write!(f, "{string}"),
+            Value::ObjectValue(object) => write!(f, "{object}"),
         }
     }
 }
@@ -32,7 +37,9 @@ impl Value {
     pub fn add_assign(&mut self, rhs: Value) -> Result<(), String> {
         match (self, rhs) {
             (Value::Number(a), Value::Number(b)) => a.add_assign(b),
-            (Value::String(a), Value::String(b)) => a.push_str(&b),
+            (Value::ObjectValue(Object::String(a)), Value::ObjectValue(Object::String(b))) => {
+                a.data.borrow_mut().push_str(&b.data.borrow())
+            }
             _ => return Err("Operands must be numbers.".into()),
         };
         Ok(())
@@ -67,7 +74,11 @@ impl Value {
             Value::Number(_) => Ok(false),
             Value::Boolean(b) => Ok(!b),
             Value::Nil => Ok(true),
-            Value::String(_) => Err("Operand for falsiness cannot be string.".into()),
+            Value::Uninit => Ok(false),
+            Value::ObjectValue(Object::String(_)) => {
+                Err("Operand for falsiness cannot be string.".into())
+            }
+            Value::ObjectValue(Object::Function(_)) => Ok(false),
         }
     }
 
@@ -76,7 +87,9 @@ impl Value {
             (Value::Nil, Value::Nil) => true,
             (Value::Boolean(a), Value::Boolean(b)) => *a == b,
             (Value::Number(a), Value::Number(b)) => *a == b,
-            (Value::String(a), Value::String(b)) => *a == b,
+            (Value::ObjectValue(Object::String(a)), Value::ObjectValue(Object::String(b))) => {
+                a.data == b.data
+            }
             _ => false,
         }
     }

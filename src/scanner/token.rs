@@ -26,22 +26,22 @@ pub enum TokenKind {
     String,
     Number,
     // Keywords.
-    And,    // pairs_with
-    Class,  // dish
-    Else,   // needs_more_salt
-    False,  // bland
-    For,    // stir
-    Fun,    // recipe
-    If,     // taste
-    Nil,    // missing_ingredient
-    Or,     // alternatively
-    Print,  // garnish
-    Return, // plate_up
-    Super,  // heres_one_i_made_earlier
-    This,   // this_dish
-    True,   // delicious
-    Var,    // ingredient
-    While,  // mix_while
+    And,
+    Class,
+    Else,
+    False,
+    For,
+    Fun,
+    If,
+    Nil,
+    Or,
+    Print,
+    Return,
+    Super,
+    This,
+    True,
+    Var,
+    While,
     // Other.
     Error,
     Eof,

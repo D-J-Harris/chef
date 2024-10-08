@@ -1,4 +1,4 @@
-stir (ingredient i = 0; i < 3; i = i + 1) {
-  garnish i;
+for (var i = 0; i < 3; i = i + 1) {
+  print i;
 }
-garnish "finished";
+print "finished";

@@ -15,22 +15,22 @@ pub struct Scanner<'source> {
 impl<'source> Scanner<'source> {
     pub fn new(source: &'source str) -> Self {
         let mut identifiers = HashMap::with_capacity(16);
-        identifiers.insert("pairs_with", TokenKind::And);
-        identifiers.insert("dish", TokenKind::Class);
-        identifiers.insert("needs_more_salt", TokenKind::Else);
-        identifiers.insert("bland", TokenKind::False);
-        identifiers.insert("stir", TokenKind::For);
-        identifiers.insert("recipe", TokenKind::Fun);
-        identifiers.insert("taste", TokenKind::If);
-        identifiers.insert("missing_ingredient", TokenKind::Nil);
-        identifiers.insert("alternatively", TokenKind::Or);
-        identifiers.insert("garnish", TokenKind::Print);
-        identifiers.insert("plate_up", TokenKind::Return);
-        identifiers.insert("heres_one_i_made_earlier", TokenKind::Super);
-        identifiers.insert("this_dish", TokenKind::This);
-        identifiers.insert("delicious", TokenKind::True);
-        identifiers.insert("ingredient", TokenKind::Var);
-        identifiers.insert("mix_while", TokenKind::While);
+        identifiers.insert("and", TokenKind::And);
+        identifiers.insert("class", TokenKind::Class);
+        identifiers.insert("else", TokenKind::Else);
+        identifiers.insert("false", TokenKind::False);
+        identifiers.insert("for", TokenKind::For);
+        identifiers.insert("fun", TokenKind::Fun);
+        identifiers.insert("if", TokenKind::If);
+        identifiers.insert("nil", TokenKind::Nil);
+        identifiers.insert("or", TokenKind::Or);
+        identifiers.insert("print", TokenKind::Print);
+        identifiers.insert("return", TokenKind::Return);
+        identifiers.insert("super", TokenKind::Super);
+        identifiers.insert("this", TokenKind::This);
+        identifiers.insert("true", TokenKind::True);
+        identifiers.insert("var", TokenKind::Var);
+        identifiers.insert("while", TokenKind::While);
         Self {
             source,
             start: 0,

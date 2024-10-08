@@ -1,7 +1,10 @@
+use std::rc::Rc;
 use std::u8;
 
+use crate::objects::ObjectString;
 use crate::value::Value;
 
+use crate::objects::Object;
 use crate::{chunk::Operation, scanner::token::TokenKind};
 
 use super::Compiler;
@@ -112,8 +115,9 @@ impl Compiler<'_> {
 
     fn string(&mut self) {
         let lexeme_len = self.previous.lexeme.len();
-        let constant = (&self.previous.lexeme[1..{ lexeme_len - 1 }]).to_owned();
-        self.emit_constant(Value::String(constant));
+        let constant = &self.previous.lexeme[1..{ lexeme_len - 1 }];
+        let object_string = Rc::new(ObjectString::new(constant));
+        self.emit_constant(Value::ObjectValue(Object::String(object_string)));
     }
 
     fn variable(&mut self, can_assign: bool) {
@@ -159,7 +163,7 @@ impl Compiler<'_> {
 
     fn and(&mut self) {
         self.emit_operation(Operation::JumpIfFalse(u8::MAX));
-        let operations_before_and = self.compiling_chunk.code.len();
+        let operations_before_and = self.current_chunk().code.len();
         self.emit_operation(Operation::Pop);
         self.parse_precedence(Precedence::And);
         self.patch_jump(operations_before_and);
@@ -167,9 +171,9 @@ impl Compiler<'_> {
 
     fn or(&mut self) {
         self.emit_operation(Operation::JumpIfFalse(u8::MAX));
-        let operations_before_else_jump = self.compiling_chunk.code.len();
+        let operations_before_else_jump = self.current_chunk().code.len();
         self.emit_operation(Operation::Jump(u8::MAX));
-        let operations_before_end_jump = self.compiling_chunk.code.len();
+        let operations_before_end_jump = self.current_chunk().code.len();
 
         self.patch_jump(operations_before_else_jump);
         self.emit_operation(Operation::Pop);

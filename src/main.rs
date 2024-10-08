@@ -7,6 +7,7 @@ use vm::Vm;
 
 mod chunk;
 mod compiler;
+mod objects;
 mod scanner;
 mod value;
 mod vm;
@@ -17,7 +18,7 @@ fn main() {
 
     match args.len() {
         1 => repl(vm),
-        2 => run_file(vm, &unsafe { args.get_unchecked(1) }),
+        2 => run_file(vm, &args[1]),
         _ => {
             eprintln!("Usage: chef [path]");
             exit(64)
