@@ -30,7 +30,7 @@ impl<'source> Parser<'source> {
             current: initial_token,
             had_error: false,
             panic_mode: false,
-            compiler: Compiler::new(FunctionKind::Script),
+            compiler: Compiler::new(),
         }
     }
 
@@ -101,14 +101,44 @@ impl<'source> Parser<'source> {
         self.define_variable(constant_index);
     }
 
-    fn function(&mut self, function_kind: FunctionKind) {
-        self.begin_scope();
-        let compiler_context = CompilerContext::new(function_kind);
-        let child_compiler_context =
+    fn init_compiler(&mut self, function_kind: FunctionKind) {
+        let name = self.previous.lexeme; // TODO: heap allocated string interning?
+        let compiler_context = CompilerContext::new(name, function_kind);
+        let enclosing_compiler_context =
             std::mem::replace(&mut self.compiler.context, compiler_context);
-        self.compiler.context.parent = Some(Box::new(child_compiler_context));
+        self.compiler.context.parent = Some(Box::new(enclosing_compiler_context));
+    }
+
+    fn function(&mut self, function_kind: FunctionKind) {
+        self.init_compiler(function_kind);
+        self.begin_scope();
 
         self.consume(TokenKind::LeftParen, "Expect '(' after function name.");
+        if !self.check_current_token(TokenKind::RightParen) {
+            loop {
+                if self
+                    .compiler
+                    .context
+                    .function
+                    .arity
+                    .checked_add(1)
+                    .is_none()
+                {
+                    self.error_at_current("Can't have more than 255 parameters.");
+                    return;
+                }
+                let Some(constant_index) = self.parse_variable("Expect parameter name.") else {
+                    self.error("Reached constant limit.");
+                    return;
+                };
+                self.define_variable(constant_index);
+
+                if !self.r#match(TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+
         self.consume(TokenKind::RightParen, "Expect ')' after parameters.");
         self.consume(TokenKind::LeftBrace, "Expect '{' before function body.");
         self.block();
@@ -429,10 +459,11 @@ impl<'source> Parser<'source> {
     }
 
     fn end_compiler(&mut self) -> Option<Function> {
+        self.emit_operation(Operation::Nil);
+        self.emit_operation(Operation::Return);
         #[cfg(feature = "debug_print_code")]
         self.compiler.debug();
 
-        self.emit_operation(Operation::Return);
         self.compiler.context.parent.take().map(|parent| {
             let context: CompilerContext<'source> =
                 std::mem::replace(&mut self.compiler.context, *parent);
@@ -484,8 +515,8 @@ struct CompilerContext<'source> {
 }
 
 impl<'source> CompilerContext<'source> {
-    pub fn new(function_kind: FunctionKind) -> Self {
-        let function = Function::new("", function_kind);
+    pub fn new(name: &str, function_kind: FunctionKind) -> Self {
+        let function = Function::new(name, function_kind);
         let mut locals = std::array::from_fn(|_| Local::default());
         locals[0].depth = Some(0);
         Self {
@@ -503,9 +534,10 @@ pub struct Compiler<'source> {
 }
 
 impl<'source> Compiler<'source> {
-    pub fn new(function_kind: FunctionKind) -> Self {
+    pub fn new() -> Self {
+        let compiler_context = CompilerContext::new("", FunctionKind::Script);
         Self {
-            context: CompilerContext::new(function_kind),
+            context: compiler_context,
         }
     }
 

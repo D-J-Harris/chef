@@ -46,6 +46,7 @@ impl Parser<'_> {
             ParseFunctionKind::Variable => Self::variable(self, Self::can_assign(precedence)),
             ParseFunctionKind::And => Self::and(self),
             ParseFunctionKind::Or => Self::or(self),
+            ParseFunctionKind::Call => Self::call(self),
         }
     }
 
@@ -180,6 +181,33 @@ impl Parser<'_> {
         self.parse_precedence(Precedence::Or);
         self.patch_jump(operations_before_end_jump);
     }
+
+    fn call(&mut self) {
+        let Some(argument_count) = self.argument_list() else {
+            self.error("Can't have more than 255 arguments.");
+            return;
+        };
+        self.emit_operation(Operation::Call(argument_count));
+    }
+
+    fn argument_list(&mut self) -> Option<u8> {
+        let mut argument_count: u8 = 0;
+        if !self.check_current_token(TokenKind::RightParen) {
+            loop {
+                self.expression();
+                argument_count = match argument_count.checked_add(1) {
+                    Some(count) => count,
+                    None => return None,
+                };
+
+                if !self.r#match(TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        self.consume(TokenKind::RightParen, "Expect ')' after arguments.");
+        Some(argument_count)
+    }
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -209,6 +237,7 @@ enum ParseFunctionKind {
     Variable,
     And,
     Or,
+    Call,
 }
 
 pub struct ParseRule {
@@ -238,8 +267,8 @@ impl Precedence {
         match token_kind {
             TokenKind::LeftParen => ParseRule {
                 prefix: ParseFunctionKind::Grouping,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
+                infix: ParseFunctionKind::Call,
+                precedence: Precedence::Call,
             },
             TokenKind::RightParen => ParseRule {
                 prefix: ParseFunctionKind::None,

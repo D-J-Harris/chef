@@ -26,8 +26,10 @@ impl Chunk {
             | Operation::SetGlobal(index) => {
                 self.disassemble_constant_instruction(operation, index as usize)
             }
-            Operation::GetLocal(index) | Operation::SetLocal(index) => {
-                self.disassemble_byte_instruction(operation, index as usize)
+            Operation::GetLocal(slot_value)
+            | Operation::SetLocal(slot_value)
+            | Operation::Call(slot_value) => {
+                self.disassemble_byte_instruction(operation, slot_value as usize)
             }
             Operation::JumpIfFalse(jump) | Operation::Jump(jump) => {
                 self.disassemble_jump_instruction(operation, jump, false)
@@ -60,8 +62,8 @@ impl Chunk {
         println!("{operation:?} [constant: {constant}]");
     }
 
-    fn disassemble_byte_instruction(&self, operation: Operation, slot_index: usize) {
-        println!("{operation:?} [slot: {slot_index}]");
+    fn disassemble_byte_instruction(&self, operation: Operation, slot_value: usize) {
+        println!("{operation:?} [slot: {slot_value}]");
     }
 
     fn disassemble_jump_instruction(

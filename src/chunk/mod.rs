@@ -20,6 +20,7 @@ pub enum Operation {
     Less,
     Print,
     Pop,
+    Call(u8),
     Constant(u8),
     DefineGlobal(u8),
     GetGlobal(u8),
