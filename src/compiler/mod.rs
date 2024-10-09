@@ -2,7 +2,7 @@ use std::rc::Rc;
 use std::u8;
 
 use crate::objects::Object;
-use crate::objects::{Function, FunctionKind, ObjectString};
+use crate::objects::{FunctionKind, FunctionObject, ObjectString};
 use crate::scanner::token::Token;
 use crate::{
     chunk::{Chunk, Operation},
@@ -50,7 +50,7 @@ impl<'source> Parser<'source> {
         &mut self.compiler.context.scope_depth
     }
 
-    pub fn compile(mut self) -> Option<Rc<Function>> {
+    pub fn compile(mut self) -> Option<Rc<FunctionObject>> {
         self.advance();
         while !self.r#match(TokenKind::Eof) {
             self.declaration();
@@ -116,17 +116,12 @@ impl<'source> Parser<'source> {
         self.consume(TokenKind::LeftParen, "Expect '(' after function name.");
         if !self.check_current_token(TokenKind::RightParen) {
             loop {
-                if self
-                    .compiler
-                    .context
-                    .function
-                    .arity
-                    .checked_add(1)
-                    .is_none()
-                {
+                let current_arity = &mut self.compiler.context.function.arity;
+                if *current_arity == u8::MAX {
                     self.error_at_current("Can't have more than 255 parameters.");
                     return;
                 }
+                *current_arity += 1;
                 let Some(constant_index) = self.parse_variable("Expect parameter name.") else {
                     self.error("Reached constant limit.");
                     return;
@@ -241,6 +236,8 @@ impl<'source> Parser<'source> {
             self.for_statement();
         } else if self.r#match(TokenKind::If) {
             self.if_statement();
+        } else if self.r#match(TokenKind::Return) {
+            self.return_statement();
         } else if self.r#match(TokenKind::While) {
             self.while_statement();
         } else if self.r#match(TokenKind::LeftBrace) {
@@ -303,6 +300,20 @@ impl<'source> Parser<'source> {
             self.statement();
         }
         self.patch_jump(num_operations_else);
+    }
+
+    fn return_statement(&mut self) {
+        if self.compiler.context.function.kind == FunctionKind::Script {
+            self.error("Can't return from top-level code.");
+            return;
+        }
+        if self.r#match(TokenKind::Semicolon) {
+            self.emit_return();
+        } else {
+            self.expression();
+            self.consume(TokenKind::Semicolon, "Expect ';' after return value.");
+            self.emit_operation(Operation::Return);
+        }
     }
 
     fn patch_jump(&mut self, num_operations_before: usize) {
@@ -458,9 +469,8 @@ impl<'source> Parser<'source> {
         self.had_error = true;
     }
 
-    fn end_compiler(&mut self) -> Option<Function> {
-        self.emit_operation(Operation::Nil);
-        self.emit_operation(Operation::Return);
+    fn end_compiler(&mut self) -> Option<FunctionObject> {
+        self.emit_return();
         #[cfg(feature = "debug_print_code")]
         self.compiler.debug();
 
@@ -469,6 +479,11 @@ impl<'source> Parser<'source> {
                 std::mem::replace(&mut self.compiler.context, *parent);
             context.function
         })
+    }
+
+    fn emit_return(&mut self) {
+        self.emit_operation(Operation::Nil);
+        self.emit_operation(Operation::Return);
     }
 
     fn synchronise(&mut self) {
@@ -508,7 +523,7 @@ impl Local<'_> {
 
 struct CompilerContext<'source> {
     parent: Option<Box<CompilerContext<'source>>>,
-    function: Function,
+    function: FunctionObject,
     scope_depth: u8,
     locals: [Local<'source>; u8::MAX as usize],
     locals_count: usize,
@@ -516,7 +531,7 @@ struct CompilerContext<'source> {
 
 impl<'source> CompilerContext<'source> {
     pub fn new(name: &str, function_kind: FunctionKind) -> Self {
-        let function = Function::new(name, function_kind);
+        let function = FunctionObject::new(name, function_kind);
         let mut locals = std::array::from_fn(|_| Local::default());
         locals[0].depth = Some(0);
         Self {

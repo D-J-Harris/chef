@@ -11,6 +11,7 @@ mod objects;
 mod scanner;
 mod value;
 mod vm;
+mod native_functions;
 
 fn main() {
     let vm = Vm::new();

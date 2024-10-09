@@ -74,10 +74,7 @@ impl Value {
             Value::Boolean(b) => Ok(!b),
             Value::Nil => Ok(true),
             Value::Uninit => Ok(false),
-            Value::ObjectValue(Object::String(_)) => {
-                Err("Operand for falsiness cannot be string.".into())
-            }
-            Value::ObjectValue(Object::Function(_)) => Ok(false),
+            Value::ObjectValue(_) => Err("Operand for falsiness cannot be an object.".into()),
         }
     }
 

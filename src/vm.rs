@@ -4,11 +4,11 @@ use std::rc::Rc;
 
 use crate::chunk::{Chunk, Operation};
 use crate::compiler::Parser;
-use crate::objects::{Function, Object};
+use crate::objects::{FunctionObject, Object};
 use crate::value::Value;
 use crate::vm::InterpretResult::{CompileError, Ok as InterpretOk};
 
-const FRAMES_MAX: usize = 32;
+const FRAMES_MAX: usize = 64;
 const STACK_MAX: usize = u8::MAX as usize;
 
 #[derive(Debug)]
@@ -19,7 +19,7 @@ pub enum InterpretResult {
 }
 
 struct CallFrame {
-    function: Rc<Function>,
+    function: Rc<FunctionObject>,
     start_slot: usize,
     ip: usize,
 }
@@ -41,21 +41,23 @@ pub struct Vm {
     stack: [Value; FRAMES_MAX * STACK_MAX],
     stack_top: usize,
     /// For Globals
-    identifiers: HashMap<String, Value>,
+    pub identifiers: HashMap<String, Value>,
 }
 
 const FRAME_DEFAULT_VALUE: MaybeUninit<CallFrame> = MaybeUninit::uninit();
 const STACK_DEFAULT_VALUE: Value = Value::Uninit;
 impl Vm {
     pub fn new() -> Self {
-        Self {
+        let mut vm = Self {
             frames: [FRAME_DEFAULT_VALUE; FRAMES_MAX],
             stack: [STACK_DEFAULT_VALUE; FRAMES_MAX * STACK_MAX],
             stack_top: 1,
             frame_count: 0,
             _objects: None,
             identifiers: HashMap::new(),
-        }
+        };
+        vm.declare_native_functions();
+        vm
     }
 
     fn read_operation(&mut self) -> Operation {
@@ -134,11 +136,14 @@ impl Vm {
             }
             match &operation {
                 Operation::Return => {
+                    let stack_top_reset = self.current_frame().start_slot;
                     let result = self.pop_value();
                     self.pop_frame();
                     if self.frame_count == 0 {
+                        self.pop_value();
                         return InterpretOk;
                     }
+                    self.stack_top = stack_top_reset;
                     self.push_value(result);
                 }
                 Operation::Constant(index) => {
@@ -329,10 +334,17 @@ impl Vm {
                 self.call(Rc::clone(&function), argument_count)?;
                 Ok(())
             }
+            Value::ObjectValue(Object::NativeFunction(function)) => {
+                let result =
+                    (function.function)(argument_count, self.stack_top - argument_count as usize);
+                self.stack_top -= argument_count as usize + 1;
+                self.push_value(result);
+                Ok(())
+            }
         }
     }
 
-    fn call(&mut self, function: Rc<Function>, argument_count: u8) -> Result<(), String> {
+    fn call(&mut self, function: Rc<FunctionObject>, argument_count: u8) -> Result<(), String> {
         if function.arity != argument_count {
             return Err(format!(
                 "Expected {} arguments but got {argument_count}.",

@@ -1,11 +1,12 @@
 use std::{cell::RefCell, fmt::Display, rc::Rc};
 
-use crate::chunk::Chunk;
+use crate::{chunk::Chunk, value::Value};
 
 #[derive(Debug, Clone)]
 pub enum Object {
     String(Rc<ObjectString>),
-    Function(Rc<Function>),
+    Function(Rc<FunctionObject>),
+    NativeFunction(Rc<NativeFunctionObject>),
 }
 
 impl Display for Object {
@@ -16,6 +17,7 @@ impl Display for Object {
                 true => write!(f, "<script>"),
                 false => write!(f, "<fn {}>", rc.name),
             },
+            Object::NativeFunction(rc) => write!(f, "<native fn {}>", rc.name),
         }
     }
 }
@@ -46,14 +48,14 @@ impl ObjectString {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq)]
 pub enum FunctionKind {
     Script,
     Function,
 }
 
 #[derive(Debug)]
-pub struct Function {
+pub struct FunctionObject {
     pub common: ObjectCommon,
     pub kind: FunctionKind,
     pub name: String,
@@ -61,14 +63,33 @@ pub struct Function {
     pub chunk: Chunk,
 }
 
-impl Function {
+impl FunctionObject {
     pub fn new(name: &str, kind: FunctionKind) -> Self {
         Self {
-            chunk: Chunk::new(),
             common: ObjectCommon::default(),
+            chunk: Chunk::new(),
             name: name.into(),
             kind,
             arity: 0,
+        }
+    }
+}
+
+pub type NativeFunction = fn(arg_count: u8, ip: usize) -> Value;
+
+#[derive(Debug)]
+pub struct NativeFunctionObject {
+    pub common: ObjectCommon,
+    pub name: String,
+    pub function: NativeFunction,
+}
+
+impl NativeFunctionObject {
+    pub fn new(name: &str, function: NativeFunction) -> Self {
+        Self {
+            common: ObjectCommon::default(),
+            name: name.into(),
+            function,
         }
     }
 }
