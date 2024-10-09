@@ -3,7 +3,7 @@ use std::mem::MaybeUninit;
 use std::rc::Rc;
 
 use crate::chunk::{Chunk, Operation};
-use crate::compiler;
+use crate::compiler::Parser;
 use crate::objects::{Function, Object};
 use crate::value::Value;
 use crate::vm::InterpretResult::{CompileError, Ok as InterpretOk, RuntimeError};
@@ -119,7 +119,7 @@ impl Vm {
                 }
                 Operation::Constant(index) => {
                     let Some(constant) = self.current_chunk().constants.get(*index as usize) else {
-                        return self.runtime_error("No constants initialised.".into());
+                        return self.runtime_error("No constants initialized.".into());
                     };
                     self.push_value(constant.clone());
                 }
@@ -197,7 +197,7 @@ impl Vm {
                         self.current_chunk().constants.get(*index as usize)
                     else {
                         return self
-                            .runtime_error("No variable initialised with this name.".into());
+                            .runtime_error("No variable initialized with this name.".into());
                     };
                     let name = Rc::clone(&name);
                     let constant = self.pop_value();
@@ -209,11 +209,11 @@ impl Vm {
                         self.current_chunk().constants.get(*index as usize)
                     else {
                         return self
-                            .runtime_error("No variable initialised with this name.".into());
+                            .runtime_error("No variable initialized with this name.".into());
                     };
                     let Some(constant) = self.identifiers.get(name.data.borrow().as_str()) else {
                         return self.runtime_error(&format!(
-                            "No constant initialised with name '{}'.",
+                            "No constant initialized with name '{}'.",
                             name.data.borrow()
                         ));
                     };
@@ -224,7 +224,7 @@ impl Vm {
                         self.current_chunk().constants.get(*index as usize)
                     else {
                         return self
-                            .runtime_error("No variable initialised with this name.".into());
+                            .runtime_error("No variable initialized with this name.".into());
                     };
                     let name = Rc::clone(&name);
                     let constant = self.peek_value();
@@ -261,7 +261,8 @@ impl Vm {
     }
 
     pub fn interpret(&mut self, source: &str) -> InterpretResult {
-        match compiler::compile(source) {
+        let parser = Parser::new(source);
+        match parser.compile() {
             Some(function) => {
                 self.push_frame(CallFrame {
                     function,

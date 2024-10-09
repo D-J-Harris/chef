@@ -12,55 +12,42 @@ use crate::{
 
 mod precedence;
 
-#[derive(Debug)]
-struct Local<'source> {
-    depth: Option<u8>,
-    name: &'source str,
-}
-
-pub fn compile(source: &str) -> Option<Rc<Function>> {
-    let compiler = Compiler::new(source, "", FunctionKind::Script);
-    compiler.compile()
-}
-
-pub struct Compiler<'source> {
-    function: Function,
+pub struct Parser<'source> {
     scanner: Scanner<'source>,
     previous: Token<'source>,
     current: Token<'source>,
     had_error: bool,
     panic_mode: bool,
-    scope_depth: u8,
-    locals: Vec<Local<'source>>,
+    compiler: Compiler<'source>,
 }
 
-impl<'source> Compiler<'source> {
-    pub fn new(source: &'source str, name: &'source str, function_kind: FunctionKind) -> Self {
+impl<'source> Parser<'source> {
+    pub fn new(source: &'source str) -> Self {
         let initial_token = Token::initial();
-        let function = Function::new(name, function_kind);
-        let mut locals = Vec::with_capacity(u8::MAX as usize);
-        locals.push(Local {
-            depth: Some(0),
-            name: "",
-        });
         Self {
-            function,
             scanner: Scanner::new(source),
             previous: initial_token,
             current: initial_token,
             had_error: false,
             panic_mode: false,
-            scope_depth: 0,
-            locals,
+            compiler: Compiler::new(FunctionKind::Script),
         }
     }
 
-    pub fn current_chunk(&mut self) -> &Chunk {
-        &self.function.chunk
+    fn current_chunk(&self) -> &Chunk {
+        &self.compiler.context.function.chunk
     }
 
-    pub fn current_chunk_mut(&mut self) -> &mut Chunk {
-        &mut self.function.chunk
+    fn current_chunk_mut(&mut self) -> &mut Chunk {
+        &mut self.compiler.context.function.chunk
+    }
+
+    fn current_scope_depth(&self) -> u8 {
+        self.compiler.context.scope_depth
+    }
+
+    fn current_scope_depth_mut(&mut self) -> &mut u8 {
+        &mut self.compiler.context.scope_depth
     }
 
     pub fn compile(mut self) -> Option<Rc<Function>> {
@@ -69,7 +56,10 @@ impl<'source> Compiler<'source> {
             self.declaration();
         }
         let had_error = self.had_error;
-        let function = self.end_compiler();
+        let function = match self.end_compiler() {
+            Some(f) => f,
+            None => self.compiler.context.function,
+        };
         match had_error {
             true => None,
             false => Some(Rc::new(function)),
@@ -89,7 +79,9 @@ impl<'source> Compiler<'source> {
     }
 
     fn declaration(&mut self) {
-        if self.r#match(TokenKind::Var) {
+        if self.r#match(TokenKind::Fun) {
+            self.fun_declaration();
+        } else if self.r#match(TokenKind::Var) {
             self.var_declaration();
         } else {
             self.statement();
@@ -97,6 +89,42 @@ impl<'source> Compiler<'source> {
         if self.panic_mode {
             self.synchronise();
         }
+    }
+
+    fn fun_declaration(&mut self) {
+        let Some(constant_index) = self.parse_variable("Expect function name.") else {
+            self.error("Reached constant limit.");
+            return;
+        };
+        self.mark_initialized();
+        self.function(FunctionKind::Function);
+        self.define_variable(constant_index);
+    }
+
+    fn function(&mut self, function_kind: FunctionKind) {
+        self.begin_scope();
+        let compiler_context = CompilerContext::new(function_kind);
+        let child_compiler_context =
+            std::mem::replace(&mut self.compiler.context, compiler_context);
+        self.compiler.context.parent = Some(Box::new(child_compiler_context));
+
+        self.consume(TokenKind::LeftParen, "Expect '(' after function name.");
+        self.consume(TokenKind::RightParen, "Expect ')' after parameters.");
+        self.consume(TokenKind::LeftBrace, "Expect '{' before function body.");
+        self.block();
+
+        let Some(function) = self.end_compiler() else {
+            self.error("Cannot end compiler for the top-level script.");
+            return;
+        };
+        let Some(constant_index) = self
+            .current_chunk_mut()
+            .add_constant(Value::ObjectValue(Object::Function(Rc::new(function))))
+        else {
+            self.error("Reached constant limit before adding function.");
+            return;
+        };
+        self.emit_operation(Operation::Constant(constant_index));
     }
 
     fn var_declaration(&mut self) {
@@ -116,24 +144,24 @@ impl<'source> Compiler<'source> {
     fn parse_variable(&mut self, error_message: &str) -> Option<u8> {
         self.consume(TokenKind::Identifier, error_message);
         self.declare_variable();
-        if self.scope_depth > 0 {
-            // Return dummy variable since locals aren't looked up by name at runntime
+        if self.current_scope_depth() > 0 {
+            // Return dummy variable since locals aren't looked up by name at runtime
             return Some(0);
         }
         self.constant_identifier(&self.previous.lexeme)
     }
 
     fn declare_variable(&mut self) {
-        if self.scope_depth == 0 {
+        if self.current_scope_depth() == 0 {
             return;
         }
         let variable_name = self.previous.lexeme;
 
         // Detect clashing variable names in current scope (does not include shadowing, which is allowed).
         let mut has_match_name_error = false;
-        for local in self.locals.iter().rev() {
+        for local in self.compiler.context.locals.iter().rev() {
             if let Some(depth) = local.depth {
-                if depth < self.scope_depth {
+                if depth < self.current_scope_depth() {
                     break;
                 }
             }
@@ -148,8 +176,9 @@ impl<'source> Compiler<'source> {
     }
 
     fn add_local(&mut self, name: &'source str) {
-        // "Declare" depth with None, it will later be initialised when variable defined
-        self.locals.push(Local { depth: None, name });
+        // "Declare" depth with None, it will later be initialized when variable defined
+        self.compiler.context.locals[self.compiler.context.locals_count].name = name;
+        self.compiler.context.locals_count += 1;
     }
 
     fn constant_identifier(&mut self, token_name: &str) -> Option<u8> {
@@ -159,16 +188,20 @@ impl<'source> Compiler<'source> {
     }
 
     fn define_variable(&mut self, constant_index: u8) {
-        if self.scope_depth > 0 {
-            // Mark as initialised
-            let Some(local) = self.locals.last_mut() else {
-                self.error("No local scopes defined.");
-                return;
-            };
-            local.depth = Some(self.scope_depth);
+        if self.current_scope_depth() > 0 {
+            self.mark_initialized();
             return;
         }
         self.emit_operation(Operation::DefineGlobal(constant_index));
+    }
+
+    fn mark_initialized(&mut self) {
+        if self.current_scope_depth() == 0 {
+            return;
+        }
+        self.compiler.context.locals[self.compiler.context.locals_count - 1].depth =
+            Some(self.current_scope_depth());
+        return;
     }
 
     fn statement(&mut self) {
@@ -190,22 +223,20 @@ impl<'source> Compiler<'source> {
     }
 
     fn begin_scope(&mut self) {
-        self.scope_depth += 1;
+        *self.current_scope_depth_mut() += 1;
     }
 
     fn end_scope(&mut self) {
-        self.scope_depth -= 1;
-        let mut emit_count = 0;
-        for local in self.locals.iter().rev() {
-            if let Some(local_depth) = local.depth {
-                if local_depth <= self.scope_depth {
+        *self.current_scope_depth_mut() -= 1;
+        for index in (0..self.compiler.context.locals_count).rev() {
+            let local = &self.compiler.context.locals[index];
+            if let Some(depth) = local.depth {
+                if depth <= self.current_scope_depth() {
                     break;
                 }
             }
-            emit_count += 1;
-        }
-        for _ in 0..emit_count {
-            self.locals.pop();
+            self.compiler.context.locals_count -= 1;
+            self.compiler.context.locals[self.compiler.context.locals_count].reset();
             self.emit_operation(Operation::Pop);
         }
     }
@@ -285,7 +316,7 @@ impl<'source> Compiler<'source> {
         self.begin_scope();
         self.consume(TokenKind::LeftParen, "Expect '(' after 'for'.");
         if self.r#match(TokenKind::Semicolon) {
-            // No initialiser
+            // No initializer
         } else if self.r#match(TokenKind::Var) {
             self.var_declaration();
         } else {
@@ -367,18 +398,6 @@ impl<'source> Compiler<'source> {
         self.current_chunk_mut().write(operation, line);
     }
 
-    fn end_compiler(mut self) -> Function {
-        self.emit_operation(Operation::Return);
-        if cfg!(feature = "debug_print_code") {
-            let name = match self.function.name.is_empty() {
-                true => "<script>".into(),
-                false => self.function.name.clone(),
-            };
-            self.current_chunk().disassemble(&name);
-        }
-        self.function
-    }
-
     fn emit_constant(&mut self, constant: Value) {
         if let Some(constant_index) = self.current_chunk_mut().add_constant(constant) {
             self.emit_operation(Operation::Constant(constant_index));
@@ -409,6 +428,18 @@ impl<'source> Compiler<'source> {
         self.had_error = true;
     }
 
+    fn end_compiler(&mut self) -> Option<Function> {
+        #[cfg(feature = "debug_print_code")]
+        self.compiler.debug();
+
+        self.emit_operation(Operation::Return);
+        self.compiler.context.parent.take().map(|parent| {
+            let context: CompilerContext<'source> =
+                std::mem::replace(&mut self.compiler.context, *parent);
+            context.function
+        })
+    }
+
     fn synchronise(&mut self) {
         self.panic_mode = false;
         while self.current.kind != TokenKind::Eof {
@@ -428,5 +459,62 @@ impl<'source> Compiler<'source> {
             }
             self.advance();
         }
+    }
+}
+
+#[derive(Debug, Default)]
+struct Local<'source> {
+    depth: Option<u8>,
+    name: &'source str,
+}
+
+impl Local<'_> {
+    fn reset(&mut self) {
+        self.depth = None;
+        self.name = "";
+    }
+}
+
+struct CompilerContext<'source> {
+    parent: Option<Box<CompilerContext<'source>>>,
+    function: Function,
+    scope_depth: u8,
+    locals: [Local<'source>; u8::MAX as usize],
+    locals_count: usize,
+}
+
+impl<'source> CompilerContext<'source> {
+    pub fn new(function_kind: FunctionKind) -> Self {
+        let function = Function::new("", function_kind);
+        let mut locals = std::array::from_fn(|_| Local::default());
+        locals[0].depth = Some(0);
+        Self {
+            parent: None,
+            function,
+            scope_depth: 0,
+            locals,
+            locals_count: 1,
+        }
+    }
+}
+
+pub struct Compiler<'source> {
+    context: CompilerContext<'source>,
+}
+
+impl<'source> Compiler<'source> {
+    pub fn new(function_kind: FunctionKind) -> Self {
+        Self {
+            context: CompilerContext::new(function_kind),
+        }
+    }
+
+    #[cfg(feature = "debug_print_code")]
+    fn debug(&self) {
+        let name = match self.context.function.name.is_empty() {
+            true => "<script>".into(),
+            false => self.context.function.name.clone(),
+        };
+        self.context.function.chunk.disassemble(&name);
     }
 }

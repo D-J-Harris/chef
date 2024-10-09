@@ -7,9 +7,9 @@ use crate::value::Value;
 use crate::objects::Object;
 use crate::{chunk::Operation, scanner::token::TokenKind};
 
-use super::Compiler;
+use super::Parser;
 
-impl Compiler<'_> {
+impl Parser<'_> {
     pub fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
         let prefix_rule = Precedence::get_rule(self.previous.kind).prefix;
@@ -148,12 +148,12 @@ impl Compiler<'_> {
     }
 
     fn resolve_local(&mut self, token_name: &str) -> Option<u8> {
-        for (index, local) in self.locals.iter().enumerate().rev() {
+        for (index, local) in self.compiler.context.locals.iter().enumerate().rev() {
             if token_name == local.name {
                 if local.depth.is_none() {
                     self.error("Can't read local variable in its own initializer.");
                 }
-                // Safety: locals Vec initialised with capacity u8::MAX
+                // Safety: locals Vec initialized with capacity u8::MAX
                 return Some(index as u8);
             }
         }

@@ -1,8 +1,7 @@
 use std::fmt::{Debug, Display};
 use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
-use std::rc::Rc;
 
-use crate::objects::{Function, Object, ObjectString};
+use crate::objects::Object;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {

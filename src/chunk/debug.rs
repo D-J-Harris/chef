@@ -3,6 +3,7 @@ use crate::chunk::Operation;
 use super::Chunk;
 
 impl Chunk {
+    #[cfg(feature = "debug_print_code")]
     pub fn disassemble(&self, name: &str) {
         println!("====== Chunk {name} ======");
         for offset in 0..self.code.len() - 1 {
