@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::mem::MaybeUninit;
 use std::rc::Rc;
 
 use crate::chunk::{Chunk, Operation};
@@ -35,7 +34,7 @@ impl CallFrame {
 }
 
 pub struct Vm {
-    frames: [MaybeUninit<CallFrame>; FRAMES_MAX],
+    frames: [Option<CallFrame>; FRAMES_MAX],
     frame_count: usize,
     _objects: Option<Box<Object>>,
     stack: [Value; FRAMES_MAX * STACK_MAX],
@@ -44,7 +43,7 @@ pub struct Vm {
     pub identifiers: HashMap<String, Value>,
 }
 
-const FRAME_DEFAULT_VALUE: MaybeUninit<CallFrame> = MaybeUninit::uninit();
+const FRAME_DEFAULT_VALUE: Option<CallFrame> = None;
 const STACK_DEFAULT_VALUE: Value = Value::Uninit;
 impl Vm {
     pub fn new() -> Self {
@@ -69,7 +68,9 @@ impl Vm {
     fn runtime_error(&mut self, err: &str) {
         eprintln!("{}", err);
         for frame_index in (0..self.frame_count).rev() {
-            let frame = unsafe { self.frames[frame_index].assume_init_mut() };
+            let frame = self.frames[frame_index]
+                .as_ref()
+                .expect("Could not find stack frame.");
             frame.runtime_error_print()
         }
         self.reset_stack();
@@ -81,15 +82,19 @@ impl Vm {
     }
 
     fn current_frame(&self) -> &CallFrame {
-        unsafe { self.frames[self.frame_count - 1].assume_init_ref() }
+        self.frames[self.frame_count - 1]
+            .as_ref()
+            .expect("Could not find stack frame.")
     }
 
     fn current_frame_mut(&mut self) -> &mut CallFrame {
-        unsafe { self.frames[self.frame_count - 1].assume_init_mut() }
+        self.frames[self.frame_count - 1]
+            .as_mut()
+            .expect("Could not find stack frame.")
     }
 
     fn push_frame(&mut self, frame: CallFrame) -> Result<(), String> {
-        self.frames[self.frame_count] = MaybeUninit::new(frame);
+        self.frames[self.frame_count] = Some(frame);
         self.frame_count += 1;
         if self.frame_count == FRAMES_MAX {
             return Err("Stack overflow.".into());
@@ -99,7 +104,7 @@ impl Vm {
 
     fn pop_frame(&mut self) {
         self.frame_count -= 1;
-        self.frames[self.frame_count] = MaybeUninit::uninit()
+        self.frames[self.frame_count] = None
     }
 
     fn current_chunk(&self) -> &Chunk {

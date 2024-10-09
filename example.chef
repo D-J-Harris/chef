@@ -3,6 +3,6 @@ fun fib(n) {
   return fib(n - 2) + fib(n - 1);
 }
 
-var start = current_time_ms();
+var start = current_time_s();
 print fib(35);
-print current_time_ms() - start;
+print current_time_s() - start;
