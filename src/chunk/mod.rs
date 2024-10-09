@@ -27,9 +27,14 @@ pub enum Operation {
     SetGlobal(u8),
     GetLocal(u8),
     SetLocal(u8),
+    GetUpvalue(u8),
+    SetUpvalue(u8),
     JumpIfFalse(u8),
     Jump(u8),
     Loop(u8),
+    Closure(u8),
+    ClosureIsLocalByte(bool),
+    ClosureIndexByte(u8),
 }
 
 #[derive(Debug)]

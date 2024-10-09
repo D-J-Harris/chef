@@ -1,6 +1,7 @@
 use std::rc::Rc;
 use std::u8;
 
+use crate::objects::ClosureObject;
 use crate::objects::Object;
 use crate::objects::{FunctionKind, FunctionObject, ObjectString};
 use crate::scanner::token::Token;
@@ -57,7 +58,7 @@ impl<'source> Parser<'source> {
         }
         let had_error = self.had_error;
         let function = match self.end_compiler() {
-            Some(f) => f,
+            Some((f, _upvalues)) => f,
             None => self.compiler.context.function,
         };
         match had_error {
@@ -138,10 +139,11 @@ impl<'source> Parser<'source> {
         self.consume(TokenKind::LeftBrace, "Expect '{' before function body.");
         self.block();
 
-        let Some(function) = self.end_compiler() else {
+        let Some((function, upvalues)) = self.end_compiler() else {
             self.error("Cannot end compiler for the top-level script.");
             return;
         };
+        let upvalue_count = function.upvalue_count;
         let Some(constant_index) = self
             .current_chunk_mut()
             .add_constant(Value::ObjectValue(Object::Function(Rc::new(function))))
@@ -149,7 +151,14 @@ impl<'source> Parser<'source> {
             self.error("Reached constant limit before adding function.");
             return;
         };
-        self.emit_operation(Operation::Constant(constant_index));
+        self.emit_operation(Operation::Closure(constant_index));
+
+        // emit bytes for variable number of closure upvalues
+        for i in 0..upvalue_count {
+            let upvalue = &upvalues[i as usize];
+            self.emit_operation(Operation::ClosureIsLocalByte(upvalue.is_local));
+            self.emit_operation(Operation::ClosureIndexByte(upvalue.index));
+        }
     }
 
     fn var_declaration(&mut self) {
@@ -469,7 +478,7 @@ impl<'source> Parser<'source> {
         self.had_error = true;
     }
 
-    fn end_compiler(&mut self) -> Option<FunctionObject> {
+    fn end_compiler(&mut self) -> Option<(FunctionObject, [Upvalue; u8::MAX as usize])> {
         self.emit_return();
         #[cfg(feature = "debug_print_code")]
         self.compiler.debug();
@@ -477,7 +486,7 @@ impl<'source> Parser<'source> {
         self.compiler.context.parent.take().map(|parent| {
             let context: CompilerContext<'source> =
                 std::mem::replace(&mut self.compiler.context, *parent);
-            context.function
+            (context.function, context.upvalues)
         })
     }
 
@@ -521,12 +530,19 @@ impl Local<'_> {
     }
 }
 
+#[derive(Default)]
+struct Upvalue {
+    pub is_local: bool,
+    pub index: u8,
+}
+
 struct CompilerContext<'source> {
-    parent: Option<Box<CompilerContext<'source>>>,
+    pub parent: Option<Box<CompilerContext<'source>>>,
     function: FunctionObject,
     scope_depth: u8,
     locals: [Local<'source>; u8::MAX as usize],
     locals_count: usize,
+    pub upvalues: [Upvalue; u8::MAX as usize],
 }
 
 impl<'source> CompilerContext<'source> {
@@ -534,18 +550,20 @@ impl<'source> CompilerContext<'source> {
         let function = FunctionObject::new(name, function_kind);
         let mut locals = std::array::from_fn(|_| Local::default());
         locals[0].depth = Some(0);
+        let upvalues = std::array::from_fn(|_| Upvalue::default());
         Self {
             parent: None,
             function,
             scope_depth: 0,
             locals,
             locals_count: 1,
+            upvalues,
         }
     }
 }
 
 pub struct Compiler<'source> {
-    context: CompilerContext<'source>,
+    pub context: CompilerContext<'source>,
 }
 
 impl<'source> Compiler<'source> {

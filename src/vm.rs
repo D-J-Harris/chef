@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use crate::chunk::{Chunk, Operation};
 use crate::compiler::Parser;
-use crate::objects::{FunctionObject, Object};
+use crate::objects::{ClosureObject, FunctionObject, Object};
 use crate::value::Value;
 use crate::vm::InterpretResult::{CompileError, Ok as InterpretOk};
 
@@ -18,17 +18,17 @@ pub enum InterpretResult {
 }
 
 struct CallFrame {
-    function: Rc<FunctionObject>,
+    closure: Rc<ClosureObject>,
     start_slot: usize,
     ip: usize,
 }
 
 impl CallFrame {
     fn runtime_error_print(&self) {
-        let line = self.function.chunk.lines[self.ip];
-        match self.function.name.is_empty() {
+        let line = self.closure.function.chunk.lines[self.ip];
+        match self.closure.function.name.is_empty() {
             true => eprintln!("[line {line}] in script"),
-            false => eprintln!("[line {line}] in {}", self.function.name),
+            false => eprintln!("[line {line}] in {}", self.closure.function.name),
         }
     }
 }
@@ -108,7 +108,7 @@ impl Vm {
     }
 
     fn current_chunk(&self) -> &Chunk {
-        &self.current_frame().function.chunk
+        &self.current_frame().closure.function.chunk
     }
 
     fn push_value(&mut self, value: Value) {
@@ -321,6 +321,20 @@ impl Vm {
                         return InterpretResult::RuntimeError;
                     }
                 }
+                Operation::Closure(index) => {
+                    let Some(Value::ObjectValue(Object::Function(function_object))) =
+                        self.current_chunk().constants.get(*index as usize)
+                    else {
+                        self.runtime_error("No function initialized for closure.".into());
+                        return InterpretResult::RuntimeError;
+                    };
+                    let closure_object = ClosureObject::new(Rc::clone(&function_object));
+                    self.push_value(Value::ObjectValue(Object::Closure(Rc::new(closure_object))));
+                }
+                Operation::GetUpvalue(_) => todo!(),
+                Operation::SetUpvalue(_) => todo!(),
+                Operation::ClosureIsLocalByte(_) => todo!(),
+                Operation::ClosureIndexByte(_) => todo!(),
             }
         }
     }
@@ -328,17 +342,6 @@ impl Vm {
     fn call_value(&mut self, argument_count: u8) -> Result<(), String> {
         let callee = self.peek_value(argument_count as usize);
         match callee {
-            Value::Uninit
-            | Value::Nil
-            | Value::Number(_)
-            | Value::Boolean(_)
-            | Value::ObjectValue(Object::String(_)) => {
-                return Err("Can only call functions and classes.".into());
-            }
-            Value::ObjectValue(Object::Function(function)) => {
-                self.call(Rc::clone(&function), argument_count)?;
-                Ok(())
-            }
             Value::ObjectValue(Object::NativeFunction(function)) => {
                 let result =
                     (function.function)(argument_count, self.stack_top - argument_count as usize);
@@ -346,19 +349,30 @@ impl Vm {
                 self.push_value(result);
                 Ok(())
             }
+            Value::ObjectValue(Object::Closure(closure)) => {
+                self.call(Rc::clone(&closure), argument_count)?;
+                Ok(())
+            }
+            Value::Uninit
+            | Value::Nil
+            | Value::Number(_)
+            | Value::Boolean(_)
+            | Value::ObjectValue(_) => {
+                return Err("Can only call functions and classes.".into());
+            }
         }
     }
 
-    fn call(&mut self, function: Rc<FunctionObject>, argument_count: u8) -> Result<(), String> {
-        if function.arity != argument_count {
+    fn call(&mut self, closure: Rc<ClosureObject>, argument_count: u8) -> Result<(), String> {
+        if closure.function.arity != argument_count {
             return Err(format!(
                 "Expected {} arguments but got {argument_count}.",
-                function.arity
+                closure.function.arity
             ));
         }
         self.push_frame(CallFrame {
-            function,
-            start_slot: self.stack_top - 1 - argument_count as usize,
+            closure,
+            start_slot: self.stack_top - argument_count as usize - 1,
             ip: 0,
         })?;
         Ok(())
@@ -367,9 +381,13 @@ impl Vm {
     pub fn interpret(&mut self, source: &str) -> InterpretResult {
         let parser = Parser::new(source);
         match parser.compile() {
-            Some(function) => self
-                .call(function, 0)
-                .expect("Failed to call top-level script."),
+            Some(function) => {
+                let closure = Rc::new(ClosureObject::new(function));
+                self.pop_value();
+                self.push_value(Value::ObjectValue(Object::Closure(Rc::clone(&closure))));
+                self.call(closure, 0)
+                    .expect("Failed to call top-level script.")
+            }
             None => return CompileError,
         }
         self.run()

@@ -44,6 +44,8 @@ The book notes a number of stretch challenges, which I have compiled below
 - [ ] Add support for discerning between string literals that point back to source code and those that own their char array, to save memory on the heap for these cases
 - [ ] Support resolve variable scanning through a more efficient DS
 - [ ] Add support for switch statement and continue clauses in for loops
+- [ ] Instruction pointer is accessed a lot, amend how this happens to encourage compiler to put it in registers (see Functions chapter challenges)
+- [ ] Add arity checking and runtime error handling for native functions
 
 ## Decisions
 

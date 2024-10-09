@@ -1,3 +1,4 @@
+use std::borrow::{Borrow, BorrowMut};
 use std::rc::Rc;
 use std::u8;
 
@@ -7,7 +8,7 @@ use crate::value::Value;
 use crate::objects::Object;
 use crate::{chunk::Operation, scanner::token::TokenKind};
 
-use super::Parser;
+use super::{Compiler, CompilerContext, Parser};
 
 impl Parser<'_> {
     pub fn parse_precedence(&mut self, precedence: Precedence) {
@@ -126,17 +127,32 @@ impl Parser<'_> {
     }
 
     fn named_variable(&mut self, token_name: &str, can_assign: bool) {
-        let (get_operation, set_operation) = match self.resolve_local(token_name) {
-            Some(constant_index) => (
+        let (get_operation, set_operation) = match resolve_local(&self.compiler.context, token_name)
+        {
+            Ok(Some(constant_index)) => (
                 Operation::GetLocal(constant_index),
                 Operation::SetLocal(constant_index),
             ),
-            None => {
-                let Some(index) = self.constant_identifier(token_name) else {
-                    self.error("Reached constant limit.");
+            Ok(None) => match resolve_upvalue(&mut self.compiler.context, token_name) {
+                Ok(Some(upvalue_index)) => (
+                    Operation::GetUpvalue(upvalue_index),
+                    Operation::SetUpvalue(upvalue_index),
+                ),
+                Ok(None) => {
+                    let Some(index) = self.constant_identifier(token_name) else {
+                        self.error("Reached constant limit.");
+                        return;
+                    };
+                    (Operation::GetGlobal(index), Operation::SetGlobal(index))
+                }
+                Err(e) => {
+                    self.error(&e);
                     return;
-                };
-                (Operation::GetGlobal(index), Operation::SetGlobal(index))
+                }
+            },
+            Err(e) => {
+                self.error(&e);
+                return;
             }
         };
 
@@ -146,20 +162,6 @@ impl Parser<'_> {
         } else {
             self.emit_operation(get_operation);
         }
-    }
-
-    fn resolve_local(&mut self, token_name: &str) -> Option<u8> {
-        for (index, local) in self.compiler.context.locals.iter().enumerate().rev() {
-            if token_name == local.name {
-                if local.depth.is_none() {
-                    self.error("Can't read local variable in its own initializer.");
-                }
-                // Safety: locals Vec initialized with capacity u8::MAX
-                return Some(index as u8);
-            }
-        }
-        // Assume global variable
-        return None;
     }
 
     fn and(&mut self) {
@@ -208,6 +210,56 @@ impl Parser<'_> {
         self.consume(TokenKind::RightParen, "Expect ')' after arguments.");
         Some(argument_count)
     }
+}
+
+fn resolve_local(compiler: &CompilerContext, token_name: &str) -> Result<Option<u8>, String> {
+    for (index, local) in compiler.locals.iter().enumerate().rev() {
+        if token_name == local.name {
+            if local.depth.is_none() {
+                return Err("Can't read local variable in its own initializer.".into());
+            }
+            return Ok(Some(index as u8));
+        }
+    }
+    // Assume global variable
+    return Ok(None);
+}
+
+fn resolve_upvalue(compiler: &mut CompilerContext, token_name: &str) -> Result<Option<u8>, String> {
+    if compiler.parent.is_none() {
+        return Ok(None);
+    }
+
+    if let Some(parent_compiler) = compiler.parent.as_deref_mut() {
+        if let Some(local_index) = resolve_local(parent_compiler, token_name)? {
+            return add_upvalue(compiler, local_index, true);
+        }
+        if let Some(upvalue) = resolve_upvalue(parent_compiler, token_name)? {
+            return add_upvalue(compiler, upvalue, false);
+        }
+    }
+    Ok(None)
+}
+
+fn add_upvalue(
+    compiler: &mut CompilerContext,
+    index: u8,
+    is_local: bool,
+) -> Result<Option<u8>, String> {
+    let upvalue_count = &mut compiler.function.upvalue_count;
+    for i in 0..*upvalue_count {
+        let upvalue = &mut compiler.upvalues[i as usize];
+        if upvalue.index == index && upvalue.is_local == is_local {
+            return Ok(Some(i));
+        }
+    }
+    if *upvalue_count == u8::MAX {
+        return Err("Too many closure variables in function.".into());
+    }
+    compiler.upvalues[*upvalue_count as usize].is_local = is_local;
+    compiler.upvalues[*upvalue_count as usize].index = index;
+    *upvalue_count += 1;
+    Ok(Some(*upvalue_count))
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
