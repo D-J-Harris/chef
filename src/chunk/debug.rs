@@ -52,7 +52,8 @@ impl Chunk {
             | Operation::Less
             | Operation::Print
             | Operation::Pop
-            | Operation::Return => self.disassemble_simple_instruction(operation),
+            | Operation::Return
+            | Operation::CloseUpvalue => self.disassemble_simple_instruction(operation),
             Operation::ClosureIsLocalByte(is_local) => match is_local {
                 true => println!("Local Value:"),
                 false => println!("Upvalue:"),

@@ -228,6 +228,9 @@ fn resolve_local(compiler: &CompilerContext, token_name: &str) -> Result<Option<
 fn resolve_upvalue(compiler: &mut CompilerContext, token_name: &str) -> Result<Option<u8>, String> {
     if let Some(parent_compiler) = compiler.parent.as_deref_mut() {
         if let Some(local_index) = resolve_local(parent_compiler, token_name)? {
+            parent_compiler.locals[local_index as usize]
+                .borrow_mut()
+                .is_captured = true;
             return add_upvalue(compiler, local_index, true);
         }
         if let Some(upvalue_index) = resolve_upvalue(parent_compiler, token_name)? {

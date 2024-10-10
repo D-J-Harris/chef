@@ -271,6 +271,12 @@ impl<'source> Parser<'source> {
                     break;
                 }
             }
+            if self.compiler.context.locals[self.compiler.context.locals_count - 1].is_captured {
+                self.emit_operation(Operation::CloseUpvalue);
+            } else {
+                self.emit_operation(Operation::Pop);
+            }
+
             self.compiler.context.locals_count -= 1;
             self.compiler.context.locals[self.compiler.context.locals_count].reset();
             self.emit_operation(Operation::Pop);
@@ -519,14 +525,16 @@ impl<'source> Parser<'source> {
 
 #[derive(Debug, Default)]
 struct Local<'source> {
-    depth: Option<u8>,
-    name: &'source str,
+    pub depth: Option<u8>,
+    pub name: &'source str,
+    pub is_captured: bool, // defaults to false
 }
 
 impl Local<'_> {
     fn reset(&mut self) {
         self.depth = None;
         self.name = "";
+        self.is_captured = false;
     }
 }
 

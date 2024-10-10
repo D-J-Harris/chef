@@ -124,10 +124,23 @@ impl ClosureObject {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct UpvalueObject {
     pub common: ObjectCommon,
     pub value_slot: usize,
+    pub is_closed: bool, // no clever pointer redirection in closed_upvalues since we used value_slot as usize, not some *Value
+    pub closed: Value,
+}
+
+impl Default for UpvalueObject {
+    fn default() -> Self {
+        Self {
+            common: ObjectCommon::default(),
+            value_slot: 0,
+            is_closed: false,
+            closed: Value::Uninit,
+        }
+    }
 }
 
 impl UpvalueObject {
@@ -135,6 +148,8 @@ impl UpvalueObject {
         Self {
             common: ObjectCommon::default(),
             value_slot,
+            is_closed: false,
+            closed: Value::Uninit,
         }
     }
 }

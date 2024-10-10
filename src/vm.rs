@@ -42,6 +42,7 @@ pub struct Vm {
     stack_top: usize,
     /// For Globals
     pub identifiers: HashMap<String, Value>,
+    open_upvalues: Vec<Rc<RefCell<UpvalueObject>>>,
 }
 
 const FRAME_DEFAULT_VALUE: Option<CallFrame> = None;
@@ -55,6 +56,7 @@ impl Vm {
             frame_count: 0,
             _objects: None,
             identifiers: HashMap::new(),
+            open_upvalues: Vec::with_capacity(u8::MAX as usize),
         };
         vm.declare_native_functions();
         vm
@@ -144,6 +146,7 @@ impl Vm {
                 Operation::Return => {
                     let stack_top_reset = self.current_frame().start_slot;
                     let result = self.pop_value();
+                    self.close_upvalues(self.current_frame().start_slot);
                     self.pop_frame();
                     if self.frame_count == 0 {
                         self.pop_value();
@@ -350,10 +353,15 @@ impl Vm {
                     self.push_value(Value::ObjectValue(Object::Closure(Rc::new(closure_object))));
                 }
                 Operation::GetUpvalue(upvalue_slot) => {
-                    let value_index = self.current_frame().closure.upvalues[*upvalue_slot as usize]
-                        .borrow()
-                        .value_slot;
-                    self.push_value(self.stack[value_index].clone())
+                    let value = {
+                        let upvalue =
+                            self.current_frame().closure.upvalues[*upvalue_slot as usize].borrow();
+                        match upvalue.is_closed {
+                            true => upvalue.closed.clone(),
+                            false => self.stack[upvalue.value_slot].clone(),
+                        }
+                    };
+                    self.push_value(value);
                 }
                 Operation::SetUpvalue(upvalue_slot) => {
                     self.current_frame().closure.upvalues[*upvalue_slot as usize]
@@ -362,13 +370,41 @@ impl Vm {
                 }
                 Operation::ClosureIsLocalByte(_) => unreachable!(),
                 Operation::ClosureIndexByte(_) => unreachable!(),
+                Operation::CloseUpvalue => {
+                    self.close_upvalues(self.stack_top - 1);
+                    self.pop_value();
+                }
             }
         }
     }
 
-    fn capture_upvalue(&self, value_slot: usize) -> Rc<RefCell<UpvalueObject>> {
+    fn close_upvalues(&mut self, from: usize) {
+        let mut num_to_pop = 0;
+        for upvalue in self.open_upvalues.iter().rev() {
+            let mut upvalue_mut = upvalue.borrow_mut();
+            if upvalue_mut.value_slot < from {
+                break;
+            }
+            upvalue_mut.closed = self.stack[upvalue_mut.value_slot].clone();
+            upvalue_mut.is_closed = true;
+            num_to_pop += 1;
+        }
+        for _ in 0..num_to_pop {
+            self.open_upvalues.pop();
+        }
+    }
+
+    fn capture_upvalue(&mut self, value_slot: usize) -> Rc<RefCell<UpvalueObject>> {
+        for upvalue in self.open_upvalues.iter().rev() {
+            if upvalue.borrow().value_slot == value_slot {
+                return Rc::clone(&upvalue);
+            }
+        }
+
         let upvalue_object = UpvalueObject::new(value_slot);
-        Rc::new(RefCell::new(upvalue_object))
+        let upvalue_object = Rc::new(RefCell::new(upvalue_object));
+        self.open_upvalues.push(Rc::clone(&upvalue_object));
+        upvalue_object
     }
 
     fn call_value(&mut self, argument_count: u8) -> Result<(), String> {
