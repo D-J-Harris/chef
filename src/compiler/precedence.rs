@@ -226,16 +226,12 @@ fn resolve_local(compiler: &CompilerContext, token_name: &str) -> Result<Option<
 }
 
 fn resolve_upvalue(compiler: &mut CompilerContext, token_name: &str) -> Result<Option<u8>, String> {
-    if compiler.parent.is_none() {
-        return Ok(None);
-    }
-
     if let Some(parent_compiler) = compiler.parent.as_deref_mut() {
         if let Some(local_index) = resolve_local(parent_compiler, token_name)? {
             return add_upvalue(compiler, local_index, true);
         }
-        if let Some(upvalue) = resolve_upvalue(parent_compiler, token_name)? {
-            return add_upvalue(compiler, upvalue, false);
+        if let Some(upvalue_index) = resolve_upvalue(parent_compiler, token_name)? {
+            return add_upvalue(compiler, upvalue_index, false);
         }
     }
     Ok(None)
@@ -259,7 +255,7 @@ fn add_upvalue(
     compiler.upvalues[*upvalue_count as usize].is_local = is_local;
     compiler.upvalues[*upvalue_count as usize].index = index;
     *upvalue_count += 1;
-    Ok(Some(*upvalue_count))
+    Ok(Some(*upvalue_count - 1))
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]

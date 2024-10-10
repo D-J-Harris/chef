@@ -1,9 +1,10 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::chunk::{Chunk, Operation};
 use crate::compiler::Parser;
-use crate::objects::{ClosureObject, FunctionObject, Object};
+use crate::objects::{ClosureObject, FunctionObject, Object, UpvalueObject};
 use crate::value::Value;
 use crate::vm::InterpretResult::{CompileError, Ok as InterpretOk};
 
@@ -328,15 +329,46 @@ impl Vm {
                         self.runtime_error("No function initialized for closure.".into());
                         return InterpretResult::RuntimeError;
                     };
-                    let closure_object = ClosureObject::new(Rc::clone(&function_object));
+                    let mut closure_object = ClosureObject::new(Rc::clone(&function_object));
+                    for i in 0..closure_object.upvalue_count {
+                        let Operation::ClosureIsLocalByte(is_local) = self.read_operation() else {
+                            self.runtime_error("Expected closure is_local byte");
+                            return InterpretResult::RuntimeError;
+                        };
+                        let Operation::ClosureIndexByte(index) = self.read_operation() else {
+                            self.runtime_error("Expected closure index byte");
+                            return InterpretResult::RuntimeError;
+                        };
+                        if is_local {
+                            closure_object.upvalues[i as usize] = self
+                                .capture_upvalue(self.current_frame().start_slot + index as usize)
+                        } else {
+                            closure_object.upvalues[i as usize] =
+                                Rc::clone(&self.current_frame().closure.upvalues[i as usize])
+                        }
+                    }
                     self.push_value(Value::ObjectValue(Object::Closure(Rc::new(closure_object))));
                 }
-                Operation::GetUpvalue(_) => todo!(),
-                Operation::SetUpvalue(_) => todo!(),
-                Operation::ClosureIsLocalByte(_) => todo!(),
-                Operation::ClosureIndexByte(_) => todo!(),
+                Operation::GetUpvalue(upvalue_slot) => {
+                    let value_index = self.current_frame().closure.upvalues[*upvalue_slot as usize]
+                        .borrow()
+                        .value_slot;
+                    self.push_value(self.stack[value_index].clone())
+                }
+                Operation::SetUpvalue(upvalue_slot) => {
+                    self.current_frame().closure.upvalues[*upvalue_slot as usize]
+                        .borrow_mut()
+                        .value_slot = self.stack_top - 1;
+                }
+                Operation::ClosureIsLocalByte(_) => unreachable!(),
+                Operation::ClosureIndexByte(_) => unreachable!(),
             }
         }
+    }
+
+    fn capture_upvalue(&self, value_slot: usize) -> Rc<RefCell<UpvalueObject>> {
+        let upvalue_object = UpvalueObject::new(value_slot);
+        Rc::new(RefCell::new(upvalue_object))
     }
 
     fn call_value(&mut self, argument_count: u8) -> Result<(), String> {

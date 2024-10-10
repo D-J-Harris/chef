@@ -8,6 +8,7 @@ pub enum Object {
     Function(Rc<FunctionObject>),
     NativeFunction(Rc<NativeFunctionObject>),
     Closure(Rc<ClosureObject>),
+    Upvalue(Rc<UpvalueObject>),
 }
 
 impl Display for Object {
@@ -24,6 +25,7 @@ impl Display for Object {
             Object::Function(rc) => write!(f, "{}", format_function_object(rc)),
             Object::NativeFunction(rc) => write!(f, "<native fn {}>", rc.name),
             Object::Closure(rc) => write!(f, "{}", format_function_object(&rc.function)),
+            Object::Upvalue(_rc) => write!(f, "upvalue",),
         }
     }
 }
@@ -106,13 +108,33 @@ impl NativeFunctionObject {
 pub struct ClosureObject {
     pub common: ObjectCommon,
     pub function: Rc<FunctionObject>,
+    pub upvalues: [Rc<RefCell<UpvalueObject>>; u8::MAX as usize],
+    pub upvalue_count: u8,
 }
 
 impl ClosureObject {
     pub fn new(function: Rc<FunctionObject>) -> Self {
+        let upvalues = std::array::from_fn(|_| Rc::new(RefCell::new(UpvalueObject::default())));
         Self {
             common: ObjectCommon::default(),
+            upvalue_count: function.upvalue_count,
             function,
+            upvalues,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct UpvalueObject {
+    pub common: ObjectCommon,
+    pub value_slot: usize,
+}
+
+impl UpvalueObject {
+    pub fn new(value_slot: usize) -> Self {
+        Self {
+            common: ObjectCommon::default(),
+            value_slot,
         }
     }
 }
