@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::chunk::Operation;
@@ -153,6 +152,7 @@ impl Vm {
         #[cfg(feature = "debug_trace_execution")]
         println!("==== Interpreting Chunk ====");
         loop {
+            println!("open upvalues {}", self.open_upvalues.len());
             let operation = self.read_operation();
             #[cfg(feature = "debug_trace_execution")]
             self.current_function()
@@ -161,6 +161,7 @@ impl Vm {
             match &operation {
                 Operation::Return => {
                     let result = self.pop_value();
+                    self.close_upvalues(self.current_frame().slot);
                     let frame = self.pop_frame();
                     if self.frame_count == 0 {
                         self.pop_value();
@@ -434,7 +435,7 @@ impl Vm {
                     self.stack[slot] = Some(replacement_value)
                 }
                 Operation::CloseUpvalue => {
-                    self.close_upvalues(self.stack_top - 1);
+                    self.close_upvalues(self.stack_top);
                     self.pop_value();
                 }
                 Operation::ClosureIsLocalByte(_) => unreachable!(),
@@ -444,7 +445,8 @@ impl Vm {
     }
 
     fn close_upvalues(&mut self, from: usize) {
-        for upvalue in self.open_upvalues.iter().rev() {
+        println!("close upvalues called");
+        for upvalue in self.open_upvalues.iter() {
             let slot = match *upvalue.borrow() {
                 UpvalueObject::Open(value_slot) => match value_slot < from {
                     true => continue,
@@ -456,6 +458,7 @@ impl Vm {
                 self.runtime_error("No value to close over."); // TODO: propagate better
                 return;
             };
+            println!("replacement!");
             upvalue.replace(UpvalueObject::Closed(value.clone()));
         }
         self.open_upvalues

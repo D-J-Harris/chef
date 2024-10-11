@@ -98,9 +98,9 @@ mod debug {
 
     impl Drop for ClosureObject {
         fn drop(&mut self) {
-            let name = match self.name.is_empty() {
+            let name = match self.function_name.is_empty() {
                 true => "<script>",
-                false => &self.name,
+                false => &self.function_name,
             };
             println!("dropped closure {}", name)
         }
@@ -108,7 +108,7 @@ mod debug {
 
     impl Drop for UpvalueObject {
         fn drop(&mut self) {
-            println!("dropped upvalue {:?}", self.value)
+            println!("dropped upvalue {:?}", self)
         }
     }
 }
