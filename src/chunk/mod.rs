@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::value::Value;
+use crate::{common::U8_MAX, value::Value};
 mod debug;
 
 #[derive(Debug, Clone, Copy)]
@@ -41,19 +41,19 @@ pub enum Operation {
 #[derive(Debug)]
 pub struct Chunk {
     pub code: Vec<Operation>,
-    pub constants: [Value; u8::MAX as usize],
-    pub constants_count: usize,
     pub lines: Vec<usize>,
+    pub constants: [Option<Value>; U8_MAX],
+    pub constants_count: usize,
 }
 
-const ARRAY_REPEAT_VALUE: Value = Value::Uninit;
+const CONSTANT_DEFAULT: Option<Value> = None;
 impl Chunk {
     pub fn new() -> Self {
         Self {
             code: Vec::new(),
-            constants: [ARRAY_REPEAT_VALUE; u8::MAX as usize],
-            constants_count: 0,
             lines: Vec::new(),
+            constants: [CONSTANT_DEFAULT; U8_MAX],
+            constants_count: 0,
         }
     }
 
@@ -66,7 +66,7 @@ impl Chunk {
     /// If it already exists in [`Chunk`], returns previous index of constant.
     pub fn add_constant(&mut self, value: Value) -> Option<u8> {
         for index in 0..self.constants_count {
-            let Some(constant) = self.constants.get(index) else {
+            let Some(Some(constant)) = self.constants.get(index) else {
                 break;
             };
             match value.eq(constant) {
@@ -74,10 +74,10 @@ impl Chunk {
                 false => continue,
             }
         }
-        if self.constants_count >= u8::MAX as usize {
+        if self.constants_count > U8_MAX {
             return None;
         };
-        self.constants[self.constants_count] = value;
+        self.constants[self.constants_count] = Some(value);
         self.constants_count += 1;
         Some(self.constants_count as u8 - 1)
     }

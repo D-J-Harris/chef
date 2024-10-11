@@ -1,14 +1,13 @@
 use std::rc::Rc;
 use std::u8;
 
-use crate::objects::ClosureObject;
-use crate::objects::Object;
-use crate::objects::{FunctionKind, FunctionObject, ObjectString};
+use crate::common::U8_MAX;
+use crate::objects::{FunctionKind, FunctionObject};
 use crate::scanner::token::Token;
+use crate::value::Value;
 use crate::{
     chunk::{Chunk, Operation},
     scanner::{token::TokenKind, Scanner},
-    value::Value,
 };
 
 mod precedence;
@@ -51,7 +50,7 @@ impl<'source> Parser<'source> {
         &mut self.compiler.context.scope_depth
     }
 
-    pub fn compile(mut self) -> Option<Rc<FunctionObject>> {
+    pub fn compile(mut self) -> Option<FunctionObject> {
         self.advance();
         while !self.r#match(TokenKind::Eof) {
             self.declaration();
@@ -63,7 +62,7 @@ impl<'source> Parser<'source> {
         };
         match had_error {
             true => None,
-            false => Some(Rc::new(function)),
+            false => Some(function),
         }
     }
 
@@ -103,7 +102,7 @@ impl<'source> Parser<'source> {
     }
 
     fn init_compiler(&mut self, function_kind: FunctionKind) {
-        let name = self.previous.lexeme; // TODO: heap allocated string interning?
+        let name = self.previous.lexeme;
         let compiler_context = CompilerContext::new(name, function_kind);
         let enclosing_compiler_context =
             std::mem::replace(&mut self.compiler.context, compiler_context);
@@ -144,9 +143,10 @@ impl<'source> Parser<'source> {
             return;
         };
         let upvalue_count = function.upvalue_count;
+
         let Some(constant_index) = self
             .current_chunk_mut()
-            .add_constant(Value::ObjectValue(Object::Function(Rc::new(function))))
+            .add_constant(Value::Function(Rc::new(function)))
         else {
             self.error("Reached constant limit before adding function.");
             return;
@@ -216,9 +216,8 @@ impl<'source> Parser<'source> {
     }
 
     fn constant_identifier(&mut self, token_name: &str) -> Option<u8> {
-        let object_string = Rc::new(ObjectString::new(token_name));
         self.current_chunk_mut()
-            .add_constant(Value::ObjectValue(Object::String(object_string)))
+            .add_constant(Value::String(token_name.into()))
     }
 
     fn define_variable(&mut self, constant_index: u8) {
@@ -276,10 +275,8 @@ impl<'source> Parser<'source> {
             } else {
                 self.emit_operation(Operation::Pop);
             }
-
             self.compiler.context.locals_count -= 1;
             self.compiler.context.locals[self.compiler.context.locals_count].reset();
-            self.emit_operation(Operation::Pop);
         }
     }
 
@@ -333,7 +330,7 @@ impl<'source> Parser<'source> {
 
     fn patch_jump(&mut self, num_operations_before: usize) {
         let num_operations_after = self.current_chunk().code.len();
-        if num_operations_after - num_operations_before > u8::MAX as usize {
+        if num_operations_after - num_operations_before > U8_MAX {
             self.error("Too much code to jump over.");
             return;
         }
@@ -417,7 +414,7 @@ impl<'source> Parser<'source> {
 
     fn emit_loop(&mut self, num_operations_loop_start: usize) {
         let offset = self.current_chunk().code.len() - num_operations_loop_start;
-        if offset > u8::MAX as usize {
+        if offset > U8_MAX {
             self.error("Too much code to jump over.");
             return;
         }
@@ -454,8 +451,8 @@ impl<'source> Parser<'source> {
         self.current_chunk_mut().write(operation, line);
     }
 
-    fn emit_constant(&mut self, constant: Value) {
-        if let Some(constant_index) = self.current_chunk_mut().add_constant(constant) {
+    fn emit_constant(&mut self, value: Value) {
+        if let Some(constant_index) = self.current_chunk_mut().add_constant(value) {
             self.emit_operation(Operation::Constant(constant_index));
         }
     }
@@ -484,7 +481,7 @@ impl<'source> Parser<'source> {
         self.had_error = true;
     }
 
-    fn end_compiler(&mut self) -> Option<(FunctionObject, [Upvalue; u8::MAX as usize])> {
+    fn end_compiler(&mut self) -> Option<(FunctionObject, [Upvalue; U8_MAX])> {
         self.emit_return();
         #[cfg(feature = "debug_print_code")]
         self.compiler.debug();
@@ -548,17 +545,17 @@ struct CompilerContext<'source> {
     pub parent: Option<Box<CompilerContext<'source>>>,
     function: FunctionObject,
     scope_depth: u8,
-    locals: [Local<'source>; u8::MAX as usize],
+    locals: [Local<'source>; U8_MAX],
     locals_count: usize,
-    pub upvalues: [Upvalue; u8::MAX as usize],
+    pub upvalues: [Upvalue; U8_MAX],
 }
 
 impl<'source> CompilerContext<'source> {
     pub fn new(name: &str, function_kind: FunctionKind) -> Self {
-        let function = FunctionObject::new(name, function_kind);
+        let function = FunctionObject::new(name.into(), function_kind);
+        let upvalues = std::array::from_fn(|_| Upvalue::default());
         let mut locals = std::array::from_fn(|_| Local::default());
         locals[0].depth = Some(0);
-        let upvalues = std::array::from_fn(|_| Upvalue::default());
         Self {
             parent: None,
             function,
@@ -571,7 +568,7 @@ impl<'source> CompilerContext<'source> {
 }
 
 pub struct Compiler<'source> {
-    pub context: CompilerContext<'source>,
+    context: CompilerContext<'source>,
 }
 
 impl<'source> Compiler<'source> {

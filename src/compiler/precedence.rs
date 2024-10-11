@@ -1,14 +1,9 @@
-use std::borrow::{Borrow, BorrowMut};
-use std::rc::Rc;
+use std::borrow::BorrowMut;
 use std::u8;
 
-use crate::objects::ObjectString;
-use crate::value::Value;
+use crate::{chunk::Operation, scanner::token::TokenKind, value::Value};
 
-use crate::objects::Object;
-use crate::{chunk::Operation, scanner::token::TokenKind};
-
-use super::{Compiler, CompilerContext, Parser};
+use super::{CompilerContext, Parser};
 
 impl Parser<'_> {
     pub fn parse_precedence(&mut self, precedence: Precedence) {
@@ -118,8 +113,7 @@ impl Parser<'_> {
     fn string(&mut self) {
         let lexeme_len = self.previous.lexeme.len();
         let constant = &self.previous.lexeme[1..{ lexeme_len - 1 }];
-        let object_string = Rc::new(ObjectString::new(constant));
-        self.emit_constant(Value::ObjectValue(Object::String(object_string)));
+        self.emit_constant(Value::String(constant.into()));
     }
 
     fn variable(&mut self, can_assign: bool) {

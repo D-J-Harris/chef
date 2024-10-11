@@ -9,6 +9,7 @@ impl Chunk {
         for offset in 0..self.code.len() - 1 {
             self.disassemble_instruction(offset)
         }
+        println!();
     }
 
     pub fn disassemble_instruction(&self, offset: usize) {
@@ -24,14 +25,14 @@ impl Chunk {
             | Operation::DefineGlobal(index)
             | Operation::GetGlobal(index)
             | Operation::SetGlobal(index)
-            | Operation::GetUpvalue(index)
-            | Operation::SetUpvalue(index)
             | Operation::Closure(index) => {
                 self.disassemble_constant_instruction(operation, index as usize)
             }
             Operation::GetLocal(slot_value)
             | Operation::SetLocal(slot_value)
-            | Operation::Call(slot_value) => {
+            | Operation::Call(slot_value)
+            | Operation::GetUpvalue(slot_value)
+            | Operation::SetUpvalue(slot_value) => {
                 self.disassemble_byte_instruction(operation, slot_value as usize)
             }
             Operation::JumpIfFalse(jump) | Operation::Jump(jump) => {
@@ -67,7 +68,12 @@ impl Chunk {
     }
 
     fn disassemble_constant_instruction(&self, operation: Operation, constant_index: usize) {
-        let constant = self.constants.get(constant_index).unwrap();
+        let constant = self
+            .constants
+            .get(constant_index)
+            .unwrap()
+            .as_ref()
+            .unwrap();
         println!("{operation:?} [constant: {constant}]");
     }
 

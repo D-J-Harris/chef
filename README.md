@@ -20,6 +20,7 @@ cargo run --features debug_print_code ./example.chef
 
 - `debug_print_code` - print out the disassembled chunk at the end of the compile step
 - `debug_trace_execution` - print out each disassembled instruction during the interpret step
+- `debug_trace_gc` - print out the drops to explicitly heap-allocated objects that occur throughout the programme
 
 ## TODO
 
@@ -50,3 +51,16 @@ The book notes a number of stretch challenges, which I have compiled below
 ## Decisions
 
 - Just like the source material, the character set is restricted to UTF-8 which enables us to scan the source code one byte at a time. The encoding of the source code is checked to be UTF-8 at runtime
+
+## Garbage Collection
+
+Roots for objects on the heap are
+
+- VM values stack
+- VM call frame closures
+- Global variables
+- Compiler functions
+- Open upvalues
+- Function constants should be `Rc<T>` so that values survive between the
+
+In theory, if every other object reference besides these are `Weak<T>` then we can have Rust's memory model manage garbage collection for us

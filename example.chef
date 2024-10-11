@@ -1,11 +1,9 @@
 fun outer() {
-  var x = "outside";
+  var x = "before";
   fun inner() {
-    print x;
+    x = "assigned";
   }
-
-  return inner;
+  inner();
+  print x;
 }
-
-var closure = outer();
-closure();
+outer();

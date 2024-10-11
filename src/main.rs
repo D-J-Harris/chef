@@ -6,12 +6,14 @@ use std::process::exit;
 use vm::Vm;
 
 mod chunk;
+mod common;
 mod compiler;
+mod memory;
+mod native_functions;
 mod objects;
 mod scanner;
 mod value;
 mod vm;
-mod native_functions;
 
 fn main() {
     let vm = Vm::new();

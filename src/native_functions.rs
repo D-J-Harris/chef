@@ -1,8 +1,9 @@
 use std::rc::Rc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::objects::{NativeFunctionObject, Object};
-use crate::{objects::NativeFunction, value::Value, vm::Vm};
+use crate::objects::NativeFunctionObject;
+use crate::value::Value;
+use crate::{objects::NativeFunction, vm::Vm};
 
 impl Vm {
     pub fn declare_native_functions(&mut self) {
@@ -11,11 +12,9 @@ impl Vm {
     }
 
     fn declare_native_function(&mut self, name: &str, function: NativeFunction) {
-        let obj = NativeFunctionObject::new(name.into(), function);
-        self.identifiers.insert(
-            name.into(),
-            Value::ObjectValue(Object::NativeFunction(Rc::new(obj))),
-        );
+        let obj = NativeFunctionObject::new(name, function);
+        self.identifiers
+            .insert(name.into(), Value::NativeFunction(Rc::new(obj)));
     }
 }
 
