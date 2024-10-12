@@ -5,7 +5,7 @@ use std::rc::Rc;
 use crate::chunk::Operation;
 use crate::common::U8_MAX;
 use crate::compiler::Parser;
-use crate::objects::{ClosureObject, FunctionObject, UpvalueObject};
+use crate::objects::{ClassObject, ClosureObject, FunctionObject, InstanceObject, UpvalueObject};
 use crate::value::Value;
 use crate::vm::InterpretResult::{CompileError, Ok as InterpretOk};
 
@@ -152,7 +152,6 @@ impl Vm {
         #[cfg(feature = "debug_trace_execution")]
         println!("==== Interpreting Chunk ====");
         loop {
-            println!("open upvalues {}", self.open_upvalues.len());
             let operation = self.read_operation();
             #[cfg(feature = "debug_trace_execution")]
             self.current_function()
@@ -440,12 +439,63 @@ impl Vm {
                 }
                 Operation::ClosureIsLocalByte(_) => unreachable!(),
                 Operation::ClosureIndexByte(_) => unreachable!(),
+                Operation::Class(index) => {
+                    let name = match self.current_function().chunk.constants.get(*index as usize) {
+                        Some(Some(Value::String(name))) => name.clone(), // TODO: string intern (they're everywhere, start by changing String in objects)
+                        _ => {
+                            self.runtime_error("No class name initialized.".into());
+                            return InterpretResult::RuntimeError;
+                        }
+                    };
+                    let class = Rc::new(RefCell::new(ClassObject::new(&name)));
+                    self.push_value(Value::Class(class));
+                }
+                Operation::GetProperty(index) => {
+                    let Some(Value::Instance(instance)) = self.peek_value(0) else {
+                        self.runtime_error("Only instances have properties.");
+                        return InterpretResult::RuntimeError;
+                    };
+                    let name = match self.current_function().chunk.constants.get(*index as usize) {
+                        Some(Some(Value::String(name))) => name.clone(),
+                        _ => {
+                            self.runtime_error("No global varibale name initialized.".into());
+                            return InterpretResult::RuntimeError;
+                        }
+                    };
+                    match Rc::clone(instance).borrow().fields.get(&name) {
+                        Some(value) => {
+                            self.pop_value();
+                            self.push_value(value.upgrade());
+                        }
+                        None => {
+                            self.runtime_error(&format!("Undefined property {}.", name));
+                            return InterpretResult::RuntimeError;
+                        }
+                    }
+                }
+                Operation::SetProperty(index) => {
+                    let Some(Value::Instance(instance)) = self.peek_value(1) else {
+                        self.runtime_error("Only instances have fields.");
+                        return InterpretResult::RuntimeError;
+                    };
+                    let instance = Rc::clone(instance);
+                    let name = match self.current_function().chunk.constants.get(*index as usize) {
+                        Some(Some(Value::String(name))) => name.clone(),
+                        _ => {
+                            self.runtime_error("No global varibale name initialized.".into());
+                            return InterpretResult::RuntimeError;
+                        }
+                    };
+                    let value = self.pop_value();
+                    instance.borrow_mut().fields.insert(name, value.downgrade());
+                    self.pop_value();
+                    self.push_value(value);
+                }
             }
         }
     }
 
     fn close_upvalues(&mut self, from: usize) {
-        println!("close upvalues called");
         for upvalue in self.open_upvalues.iter() {
             let slot = match *upvalue.borrow() {
                 UpvalueObject::Open(value_slot) => match value_slot < from {
@@ -498,6 +548,14 @@ impl Vm {
             }
             Value::Closure(closure) => {
                 self.call(Rc::clone(&closure), argument_count)?;
+                Ok(())
+            }
+            Value::Class(class) => {
+                let slot = self.stack_top - (argument_count as usize + 1);
+                let instance = Value::Instance(Rc::new(RefCell::new(InstanceObject::new(
+                    Rc::downgrade(class),
+                ))));
+                self.stack[slot].replace(instance);
                 Ok(())
             }
             _ => Err("Can only call functions and classes.".into()),

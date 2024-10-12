@@ -1,11 +1,9 @@
-fun outer() {
-  var x = "outside";
-  fun inner() {
-    print x;
-  }
-
-  return inner;
+class Node {}
+{
+  var n1 = Node();
+  var n2 = Node();
+  n1.inner = n2;
+  n2.inner = n1;
 }
 
-var closure = outer();
-closure();
+print "done";

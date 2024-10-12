@@ -1,8 +1,11 @@
+use std::cell::RefCell;
 use std::fmt::{Debug, Display};
 use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
-use crate::objects::{ClosureObject, FunctionObject, NativeFunctionObject};
+use crate::objects::{
+    ClassObject, ClosureObject, FunctionObject, InstanceObject, NativeFunctionObject,
+};
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -13,6 +16,53 @@ pub enum Value {
     Function(Rc<FunctionObject>),
     NativeFunction(Rc<NativeFunctionObject>),
     Closure(Rc<ClosureObject>),
+    Class(Rc<RefCell<ClassObject>>),
+    Instance(Rc<RefCell<InstanceObject>>),
+}
+
+#[derive(Debug, Clone)]
+pub enum WeakValue {
+    Nil,
+    Number(f64),
+    Boolean(bool),
+    String(String),
+    Function(Weak<FunctionObject>),
+    NativeFunction(Weak<NativeFunctionObject>),
+    Closure(Weak<ClosureObject>),
+    Class(Weak<RefCell<ClassObject>>),
+    Instance(Weak<RefCell<InstanceObject>>),
+}
+
+impl Value {
+    pub fn downgrade(&self) -> WeakValue {
+        match self {
+            Value::Nil => WeakValue::Nil,
+            Value::Number(number) => WeakValue::Number(*number),
+            Value::Boolean(boolean) => WeakValue::Boolean(*boolean),
+            Value::String(string) => WeakValue::String(string.clone()),
+            Value::Function(rc) => WeakValue::Function(Rc::downgrade(rc)),
+            Value::NativeFunction(rc) => WeakValue::NativeFunction(Rc::downgrade(rc)),
+            Value::Closure(rc) => WeakValue::Closure(Rc::downgrade(rc)),
+            Value::Class(rc) => WeakValue::Class(Rc::downgrade(rc)),
+            Value::Instance(rc) => WeakValue::Instance(Rc::downgrade(rc)),
+        }
+    }
+}
+
+impl WeakValue {
+    pub fn upgrade(&self) -> Value {
+        match self {
+            WeakValue::Nil => Value::Nil,
+            WeakValue::Number(number) => Value::Number(*number),
+            WeakValue::Boolean(boolean) => Value::Boolean(*boolean),
+            WeakValue::String(string) => Value::String(string.clone()),
+            WeakValue::Function(weak) => Value::Function(weak.upgrade().unwrap()), // TODO: proper error handling, probably not impl From
+            WeakValue::NativeFunction(weak) => Value::NativeFunction(weak.upgrade().unwrap()),
+            WeakValue::Closure(weak) => Value::Closure(weak.upgrade().unwrap()),
+            WeakValue::Class(weak) => Value::Class(weak.upgrade().unwrap()),
+            WeakValue::Instance(weak) => Value::Instance(weak.upgrade().unwrap()),
+        }
+    }
 }
 
 impl PartialEq for Value {
@@ -28,7 +78,7 @@ fn format_function_object(function_object: &Rc<FunctionObject>) -> String {
     }
 }
 
-// TODO: clean up Displays for Value types
+// TODO: clean up Displays for Value types (e.g. looking through weak types)
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -39,6 +89,8 @@ impl Display for Value {
             Value::Function(rc) => write!(f, "{}", format_function_object(rc)),
             Value::NativeFunction(rc) => write!(f, "<native fn {}>", rc.name),
             Value::Closure(rc) => write!(f, "{}", rc.function_name),
+            Value::Class(rc) => write!(f, "class {}", rc.borrow().name),
+            Value::Instance(_rc) => write!(f, "class instance"),
         }
     }
 }

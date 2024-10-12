@@ -23,11 +23,14 @@ pub enum Operation {
     CloseUpvalue,
     Call(u8),
     Constant(u8),
+    Class(u8),
     DefineGlobal(u8),
     GetGlobal(u8),
     SetGlobal(u8),
     GetLocal(u8),
     SetLocal(u8),
+    GetProperty(u8),
+    SetProperty(u8),
     GetUpvalue(u8),
     SetUpvalue(u8),
     JumpIfFalse(u8),
@@ -75,6 +78,7 @@ impl Chunk {
             }
         }
         if self.constants_count > U8_MAX {
+            // TODO: propagate as error rather than Option
             return None;
         };
         self.constants[self.constants_count] = Some(value);

@@ -1,9 +1,14 @@
 use std::{
     cell::RefCell,
+    collections::HashMap,
     rc::{Rc, Weak},
 };
 
-use crate::{chunk::Chunk, common::U8_MAX, value::Value};
+use crate::{
+    chunk::Chunk,
+    common::U8_MAX,
+    value::{Value, WeakValue},
+};
 
 pub type NativeFunction = fn(arg_count: u8, ip: usize) -> Value;
 
@@ -70,7 +75,7 @@ impl ClosureObject {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum UpvalueObject {
     Open(usize),
     Closed(Value),
@@ -82,9 +87,35 @@ impl UpvalueObject {
     }
 }
 
+#[derive(Debug)]
+pub struct ClassObject {
+    pub name: String,
+}
+
+impl ClassObject {
+    pub fn new(name: &str) -> Self {
+        Self { name: name.into() }
+    }
+}
+
+#[derive(Debug)]
+pub struct InstanceObject {
+    pub class: Weak<RefCell<ClassObject>>,
+    pub fields: HashMap<String, WeakValue>,
+}
+
+impl InstanceObject {
+    pub fn new(class: Weak<RefCell<ClassObject>>) -> Self {
+        Self {
+            class,
+            fields: HashMap::new(),
+        }
+    }
+}
+
 #[cfg(feature = "debug_trace_gc")]
 mod debug {
-    use super::{ClosureObject, FunctionObject, UpvalueObject};
+    use super::{ClassObject, ClosureObject, FunctionObject, InstanceObject, UpvalueObject};
 
     impl Drop for FunctionObject {
         fn drop(&mut self) {
@@ -109,6 +140,18 @@ mod debug {
     impl Drop for UpvalueObject {
         fn drop(&mut self) {
             println!("dropped upvalue {:?}", self)
+        }
+    }
+
+    impl Drop for ClassObject {
+        fn drop(&mut self) {
+            println!("dropped class {}", self.name)
+        }
+    }
+
+    impl Drop for InstanceObject {
+        fn drop(&mut self) {
+            println!("dropped class instance {:?}", self)
         }
     }
 }

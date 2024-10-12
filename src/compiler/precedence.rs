@@ -43,6 +43,7 @@ impl Parser<'_> {
             ParseFunctionKind::And => Self::and(self),
             ParseFunctionKind::Or => Self::or(self),
             ParseFunctionKind::Call => Self::call(self),
+            ParseFunctionKind::Dot => Self::dot(self, Self::can_assign(precedence)),
         }
     }
 
@@ -204,6 +205,20 @@ impl Parser<'_> {
         self.consume(TokenKind::RightParen, "Expect ')' after arguments.");
         Some(argument_count)
     }
+
+    fn dot(&mut self, can_assign: bool) {
+        self.consume(TokenKind::Identifier, "Expect property name after '.'.");
+        let Some(name_index) = self.constant_identifier(&self.previous.lexeme) else {
+            self.error(&format!("No constant with name {}", self.previous.lexeme));
+            return;
+        };
+        if can_assign && self.r#match(TokenKind::Equal) {
+            self.expression();
+            self.emit_operation(Operation::SetProperty(name_index));
+        } else {
+            self.emit_operation(Operation::GetProperty(name_index));
+        }
+    }
 }
 
 fn resolve_local(compiler: &CompilerContext, token_name: &str) -> Result<Option<u8>, String> {
@@ -283,6 +298,7 @@ enum ParseFunctionKind {
     And,
     Or,
     Call,
+    Dot,
 }
 
 pub struct ParseRule {
@@ -337,8 +353,8 @@ impl Precedence {
             },
             TokenKind::Dot => ParseRule {
                 prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
+                infix: ParseFunctionKind::Dot,
+                precedence: Precedence::Call,
             },
             TokenKind::Minus => ParseRule {
                 prefix: ParseFunctionKind::Unary,

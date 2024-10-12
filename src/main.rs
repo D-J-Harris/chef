@@ -8,7 +8,6 @@ use vm::Vm;
 mod chunk;
 mod common;
 mod compiler;
-mod memory;
 mod native_functions;
 mod objects;
 mod scanner;

@@ -79,7 +79,9 @@ impl<'source> Parser<'source> {
     }
 
     fn declaration(&mut self) {
-        if self.r#match(TokenKind::Fun) {
+        if self.r#match(TokenKind::Class) {
+            self.class_declaration();
+        } else if self.r#match(TokenKind::Fun) {
             self.fun_declaration();
         } else if self.r#match(TokenKind::Var) {
             self.var_declaration();
@@ -89,6 +91,20 @@ impl<'source> Parser<'source> {
         if self.panic_mode {
             self.synchronise();
         }
+    }
+
+    fn class_declaration(&mut self) {
+        self.consume(TokenKind::Identifier, "Expect class name.");
+        let Some(name_constant_index) = self.constant_identifier(&self.previous.lexeme) else {
+            self.error("No constants defined.");
+            return;
+        };
+        self.declare_variable();
+        self.emit_operation(Operation::Class(name_constant_index));
+        self.define_variable(name_constant_index);
+
+        self.consume(TokenKind::LeftBrace, "Expect '{' before class body.");
+        self.consume(TokenKind::RightBrace, "Expect '}' after class body.");
     }
 
     fn fun_declaration(&mut self) {
