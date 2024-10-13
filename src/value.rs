@@ -1,3 +1,4 @@
+use crate::error::{InterpretResult, RuntimeError};
 use std::cell::RefCell;
 use std::fmt::{Debug, Display};
 use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
@@ -89,60 +90,60 @@ impl Display for Value {
             Value::Function(rc) => write!(f, "{}", format_function_object(rc)),
             Value::NativeFunction(rc) => write!(f, "<native fn {}>", rc.name),
             Value::Closure(rc) => write!(f, "{}", rc.function_name),
-            Value::Class(rc) => write!(f, "class {}", rc.borrow().name),
+            Value::Class(rc) => write!(f, "{}", rc.borrow().name),
             Value::Instance(_rc) => write!(f, "class instance"),
         }
     }
 }
 
 impl Value {
-    pub fn negate(&mut self) -> Result<(), String> {
+    pub fn negate(&mut self) -> InterpretResult<()> {
         match self {
             Self::Number(number) => *number = -*number,
-            _ => return Err("Operand must be a number.".into()),
+            _ => return Err(RuntimeError::ValueNegationOperation),
         };
         Ok(())
     }
 
-    pub fn add_assign(&mut self, rhs: Self) -> Result<(), String> {
+    pub fn add_assign(&mut self, rhs: Self) -> InterpretResult<()> {
         match (self, rhs) {
             (Self::Number(a), Self::Number(b)) => a.add_assign(b),
             (Self::String(a), Self::String(b)) => a.push_str(b.as_str()),
-            _ => return Err("Operands must be numbers.".into()),
+            _ => return Err(RuntimeError::ValueAddOperation),
         };
         Ok(())
     }
 
-    pub fn sub_assign(&mut self, rhs: Self) -> Result<(), String> {
+    pub fn sub_assign(&mut self, rhs: Self) -> InterpretResult<()> {
         match (self, rhs) {
             (Self::Number(a), Self::Number(b)) => a.sub_assign(b),
-            _ => return Err("Operands must be numbers.".into()),
+            _ => return Err(RuntimeError::ValueNumberOnlyOperation),
         };
         Ok(())
     }
 
-    pub fn mul_assign(&mut self, rhs: Self) -> Result<(), String> {
+    pub fn mul_assign(&mut self, rhs: Self) -> InterpretResult<()> {
         match (self, rhs) {
             (Self::Number(a), Self::Number(b)) => a.mul_assign(b),
-            _ => return Err("Operands must be numbers.".into()),
+            _ => return Err(RuntimeError::ValueNumberOnlyOperation),
         };
         Ok(())
     }
 
-    pub fn div_assign(&mut self, rhs: Self) -> Result<(), String> {
+    pub fn div_assign(&mut self, rhs: Self) -> InterpretResult<()> {
         match (self, rhs) {
             (Self::Number(a), Self::Number(b)) => a.div_assign(b),
-            _ => return Err("Operands must be numbers.".into()),
+            _ => return Err(RuntimeError::ValueNumberOnlyOperation),
         };
         Ok(())
     }
 
-    pub fn falsey(&self) -> Result<bool, String> {
+    pub fn falsey(&self) -> InterpretResult<bool> {
         match self {
             Self::Number(_) => Ok(false),
             Self::Boolean(b) => Ok(!b),
             Self::Nil => Ok(true),
-            _ => Err("Invalid operand for falsiness.".into()),
+            _ => Err(RuntimeError::ValueFalsinessOperation),
         }
     }
 
@@ -156,17 +157,17 @@ impl Value {
         }
     }
 
-    pub fn is_greater(&self, rhs: Self) -> Result<bool, String> {
+    pub fn is_greater(&self, rhs: Self) -> InterpretResult<bool> {
         match (self, rhs) {
             (Self::Number(a), Self::Number(b)) => Ok(*a > b),
-            _ => return Err("Operands must be numbers.".into()),
+            _ => return Err(RuntimeError::ValueNumberOnlyOperation),
         }
     }
 
-    pub fn is_less(&self, rhs: Self) -> Result<bool, String> {
+    pub fn is_less(&self, rhs: Self) -> InterpretResult<bool> {
         match (self, rhs) {
             (Self::Number(a), Self::Number(b)) => Ok(*a < b),
-            _ => return Err("Operands must be numbers.".into()),
+            _ => return Err(RuntimeError::ValueNumberOnlyOperation),
         }
     }
 }

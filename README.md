@@ -31,6 +31,7 @@ cargo run --features debug_print_code ./example.chef
 - [ ] Clean up chunk debugging once `Operation` has been amending to carry no data
 - [ ] Change Option in fixed sized arrays to MaybeUninit and measure performance improvements (unsafe)
 - [ ] Add String interning
+- [ ] Fix tests - class, assignment/this, 
 
 ## Challenges
 

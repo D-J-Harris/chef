@@ -39,7 +39,15 @@ fn repl(mut vm: Vm) {
             .read_line(&mut buf)
             .expect("Could not read user input.");
         buf.push('\0');
-        vm.interpret(&buf);
+        if let Err(err) = vm.interpret(&buf) {
+            match err {
+                error::RuntimeError::CompileError => exit(65),
+                runtime_err @ _ => {
+                    eprintln!("{}", runtime_err);
+                    vm.stack_error(""); // TODO: once finished, this has zero args
+                }
+            }
+        };
     }
 }
 
@@ -49,9 +57,14 @@ fn run_file(mut vm: Vm, path: &str) {
         exit(74);
     };
     source.push('\0');
-    match vm.interpret(&source) {
-        vm::InterpretResult::Ok => (),
-        vm::InterpretResult::CompileError => exit(65),
-        vm::InterpretResult::RuntimeError => exit(70),
-    }
+    if let Err(err) = vm.interpret(&source) {
+        match err {
+            error::RuntimeError::CompileError => exit(65),
+            runtime_err @ _ => {
+                eprintln!("{}", runtime_err);
+                vm.stack_error(""); // TODO: once finished, this has zero args
+                exit(70);
+            }
+        }
+    };
 }

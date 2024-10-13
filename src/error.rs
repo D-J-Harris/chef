@@ -1,11 +1,49 @@
 use thiserror::Error;
 
-pub type Result<T> = std::result::Result<T, ChefError>;
+pub type InterpretResult<T> = std::result::Result<T, RuntimeError>;
 
 #[derive(Debug, Error)]
-pub enum ChefError {
-    #[error("Compile error.")]
+pub enum RuntimeError {
+    #[error("Compile error.")] // TODO: remove
     CompileError,
-    #[error("Runtime error.")]
-    RuntimeError,
+    #[error("Index out of bounds.")]
+    OutOfBounds,
+    #[error("Attempted to read from uninitialized stack slot.")]
+    UninitializedStackValue,
+    #[error("Attempted to read from uninitialized constant slot.")]
+    UninitializedConstantValue,
+    #[error("Attempted to read from uninitialized upvalue slot.")]
+    UninitializedUpvalue,
+    #[error("Stack overflow.")]
+    StackOverflow,
+    #[error("Only instances have properties.")]
+    InstanceGetProperty,
+    #[error("Only instances have fields.")]
+    InstanceSetProperty,
+    #[error("Call to closure does not have an associated function.")]
+    ClosureGetFunction,
+    #[error("Expected {0} arguments but got {1}.")]
+    FunctionArity(u8, u8),
+    #[error("Can only call functions and classes.")]
+    InvalidCallee,
+    #[error("Undefined variable '{0}'.")]
+    UndefinedVariable(String),
+    #[error("Operand must be a number.")]
+    ValueNegationOperation,
+    #[error("Operands must be numbers.")]
+    ValueNumberOnlyOperation,
+    #[error("Operands must both be numbers or both be strings.")]
+    ValueAddOperation,
+    #[error("Operand must be a number, boolean or nil.")]
+    ValueFalsinessOperation,
+    #[error("No string name initialized.")]
+    ConstantStringNotFound,
+    #[error("No function name initialized.")]
+    ConstantFunctionNotFound,
+    #[error("No class name initialized.")]
+    ConstantClassNotFound,
+    #[error("Invalid closure opcodes")]
+    ClosureOpcode, // TODO: can be removed with more trust in code?
+    #[error("Generic error while transitioning.")] // TODO: remove once done
+    GenericRuntimeError,
 }
