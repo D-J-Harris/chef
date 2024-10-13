@@ -2,7 +2,7 @@
 
 Bytecode interpreter for the programming language `chef`, created following Part III of the book [Crafting Interpreters](https://craftinginterpreters.com/)
 
-Bootstrapped in Rust (the book uses C), using only `std`
+Bootstrapped in Rust (the book uses C)
 
 ## Installation
 
@@ -64,3 +64,17 @@ Roots for objects on the heap are
 - Function constants should be `Rc<T>` so that values survive between the
 
 In theory, if every other object reference besides these are `Weak<T>` then we can have Rust's memory model manage garbage collection for us
+
+## Test
+
+```sh
+cargo test
+```
+
+## Copyright Notice
+
+[Test and benchmark files](./tests/suite/) from [Robert Nystrom](https://github.com/munificent/craftinginterpreters) (MIT licensed)
+
+[Test suite runner code](./tests/run.rs) inspired from [Manuel Cerón](https://github.com/ceronman/loxido/tree/unsafe) (MIT licensed)
+
+This code is [MIT licensed](./LICENSE)

@@ -598,8 +598,6 @@ impl Vm {
             }
             None => return CompileError,
         }
-        let result = self.run();
-        println!("\nProgramme Finished\n");
-        result
+        self.run()
     }
 }

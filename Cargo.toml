@@ -9,3 +9,8 @@ debug_print_code = []
 debug_trace_gc = []
 
 [dependencies]
+thiserror = "1.0.64"
+
+[dev-dependencies]
+regex = "1.11.0"
+test-generator = "0.3.1"

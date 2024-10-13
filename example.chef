@@ -1,9 +1,1 @@
-class Node {}
-{
-  var n1 = Node();
-  var n2 = Node();
-  n1.inner = n2;
-  n2.inner = n1;
-}
-
-print "done";
+unknown = "what"; // expect runtime error: Undefined variable 'unknown'.

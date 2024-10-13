@@ -56,7 +56,7 @@ impl WeakValue {
             WeakValue::Number(number) => Value::Number(*number),
             WeakValue::Boolean(boolean) => Value::Boolean(*boolean),
             WeakValue::String(string) => Value::String(string.clone()),
-            WeakValue::Function(weak) => Value::Function(weak.upgrade().unwrap()), // TODO: proper error handling, probably not impl From
+            WeakValue::Function(weak) => Value::Function(weak.upgrade().unwrap()), // TODO: proper error handling, this error can and should make it to a user e.g. if they try to print a memnber whose variable dropped out of scope
             WeakValue::NativeFunction(weak) => Value::NativeFunction(weak.upgrade().unwrap()),
             WeakValue::Closure(weak) => Value::Closure(weak.upgrade().unwrap()),
             WeakValue::Class(weak) => Value::Class(weak.upgrade().unwrap()),
