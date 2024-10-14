@@ -40,6 +40,7 @@ pub enum Operation {
     ClosureIsLocalByte(bool),
     ClosureIndexByte(u8),
     Method(u8),
+    Invoke(u8, u8),
 }
 
 #[derive(Debug)]

@@ -1,6 +1,8 @@
 use std::rc::Rc;
 use std::u8;
 
+use precedence::add_upvalue;
+
 use crate::common::U8_MAX;
 use crate::objects::{FunctionKind, FunctionObject};
 use crate::scanner::token::Token;
@@ -585,7 +587,7 @@ impl Local<'_> {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Upvalue {
     pub is_local: bool,
     pub index: u8,

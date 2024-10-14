@@ -1,3 +1,5 @@
+use std::error;
+
 use thiserror::Error;
 
 pub type InterpretResult<T> = std::result::Result<T, RuntimeError>;
@@ -20,6 +22,8 @@ pub enum RuntimeError {
     InstanceGetProperty,
     #[error("Only instances have fields.")]
     InstanceSetProperty,
+    #[error("Only instances have methods.")]
+    InstanceInvoke,
     #[error("Call to closure does not have an associated function.")]
     ClosureGetFunction,
     #[error("Call to instance does not have an associated class.")]

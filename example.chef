@@ -1,15 +1,12 @@
-class CoffeeMaker {
-  init(coffee) {
-    this.coffee = coffee;
-  }
+class Oops {
+  init() {
+    fun f() {
+      print "not a method";
+    }
 
-  brew() {
-    var b = CoffeeMaker("");
-    print "Enjoy your cup of " + this.coffee;
+    this.field = f;
   }
 }
 
-var coffee = "caramel macchiato";
-var maker = CoffeeMaker(coffee);
-maker.brew();
-maker.brew();
+var oops = Oops();
+oops.field();

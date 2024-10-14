@@ -216,6 +216,12 @@ impl Parser<'_> {
         if can_assign && self.r#match(TokenKind::Equal) {
             self.expression();
             self.emit_operation(Operation::SetProperty(name_index));
+        } else if self.r#match(TokenKind::LeftParen) {
+            let Some(argument_count) = self.argument_list() else {
+                self.error("Can't have more than 255 arguments.");
+                return;
+            };
+            self.emit_operation(Operation::Invoke(name_index, argument_count));
         } else {
             self.emit_operation(Operation::GetProperty(name_index));
         }
@@ -258,11 +264,12 @@ fn resolve_upvalue(compiler: &mut CompilerContext, token_name: &str) -> Result<O
     Ok(None)
 }
 
-fn add_upvalue(
+pub fn add_upvalue(
     compiler: &mut CompilerContext,
     index: u8,
     is_local: bool,
 ) -> Result<Option<u8>, String> {
+    println!("upvalue added");
     let upvalue_count = &mut compiler.function.upvalue_count;
     for i in 0..*upvalue_count {
         let upvalue = &mut compiler.upvalues[i as usize];
@@ -276,6 +283,10 @@ fn add_upvalue(
     compiler.upvalues[*upvalue_count as usize].is_local = is_local;
     compiler.upvalues[*upvalue_count as usize].index = index;
     *upvalue_count += 1;
+    println!(
+        "upvalues for {}: {:?}",
+        compiler.function.name, compiler.upvalues
+    );
     Ok(Some(*upvalue_count - 1))
 }
 

@@ -64,6 +64,9 @@ impl Chunk {
                 false => println!("Upvalue:"),
             },
             Operation::ClosureIndexByte(index) => println!("Index {}", index),
+            Operation::Invoke(index, argument_count) => {
+                self.disassemble_invoke_instruction(index as usize, argument_count)
+            }
         }
     }
 
@@ -95,5 +98,10 @@ impl Chunk {
             "{operation:?} [jump: {}, backwards: {}]",
             jump, is_jump_backwards
         );
+    }
+
+    fn disassemble_invoke_instruction(&self, index: usize, argument_count: u8) {
+        let constant = self.constants.get(index).unwrap().as_ref().unwrap();
+        println!("Invoke ({argument_count} args) [constant: {constant}]");
     }
 }

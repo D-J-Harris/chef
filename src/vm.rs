@@ -420,8 +420,48 @@ impl Vm {
                     };
                     self.define_method(name)?;
                 }
+                Operation::Invoke(index, argument_count) => {
+                    let Value::String(method) = self.read_constant(*index)? else {
+                        return Err(RuntimeError::ConstantStringNotFound);
+                    };
+                    self.invoke(&method, *argument_count)?;
+                    self.pop_frame();
+                }
             }
         }
+    }
+
+    fn invoke(&mut self, method: &str, argument_count: u8) -> InterpretResult<()> {
+        let Value::Instance(receiver) = self.peek(self.current_slot() - argument_count as usize)?
+        else {
+            return Err(RuntimeError::InstanceInvoke);
+        };
+        if let Some(value) = Rc::clone(&receiver).borrow().fields.get(method) {
+            let value = value.upgrade();
+            self.stack[self.current_slot() - argument_count as usize] = Some(value);
+            return self.call_value(argument_count);
+        }
+
+        let class = receiver
+            .borrow()
+            .class
+            .upgrade()
+            .ok_or(RuntimeError::InstanceGetClass)?;
+        self.invoke_from_class(class, method, argument_count)
+    }
+
+    fn invoke_from_class(
+        &mut self,
+        class: Rc<RefCell<ClassObject>>,
+        name: &str,
+        argument_count: u8,
+    ) -> InterpretResult<()> {
+        let class_borrow = class.borrow();
+        let method = class_borrow
+            .methods
+            .get(name)
+            .ok_or(RuntimeError::UndefinedProperty(name.into()))?;
+        self.call(Rc::clone(&method), argument_count)
     }
 
     fn define_method(&mut self, name: String) -> InterpretResult<()> {
