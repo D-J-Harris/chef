@@ -1,12 +1,14 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use crate::chunk::Operation;
 use crate::common::U8_MAX;
 use crate::compiler::Parser;
 use crate::error::{InterpretResult, RuntimeError};
-use crate::objects::{ClassObject, ClosureObject, FunctionObject, InstanceObject, UpvalueObject};
+use crate::objects::{
+    BoundMethodObject, ClassObject, ClosureObject, FunctionObject, InstanceObject, UpvalueObject,
+};
 use crate::value::Value;
 
 const FRAMES_MAX: usize = 64;
@@ -177,12 +179,13 @@ impl Vm {
             let operation = self.read_operation()?;
             #[cfg(feature = "debug_trace_execution")]
             self.current_function()
+                .unwrap()
                 .chunk
                 .disassemble_instruction(self.current_frame().ip - 1);
             match &operation {
                 Operation::Return => {
                     let result = self.pop();
-                    self.close_upvalues(self.current_frame().slot);
+                    self.close_upvalues(self.current_frame().slot)?;
                     let frame = self.pop_frame();
                     if self.frame_count == 0 {
                         self.pop();
@@ -367,7 +370,7 @@ impl Vm {
                     self.stack[slot] = Some(replacement_value)
                 }
                 Operation::CloseUpvalue => {
-                    self.close_upvalues(self.stack_top);
+                    self.close_upvalues(self.stack_top)?;
                     self.pop();
                 }
                 Operation::ClosureIsLocalByte(_) => unreachable!(),
@@ -383,19 +386,19 @@ impl Vm {
                     let Value::Instance(instance) = self.peek(self.current_slot())? else {
                         return Err(RuntimeError::InstanceGetProperty);
                     };
+                    let instance = Rc::clone(instance);
                     let Value::String(name) = self.read_constant(*index)? else {
                         return Err(RuntimeError::ConstantStringNotFound);
                     };
-                    match Rc::clone(instance).borrow().fields.get(&name) {
+                    let bound_method = match instance.borrow().fields.get(&name) {
                         Some(value) => {
                             self.pop();
                             self.push(value.upgrade());
+                            continue;
                         }
-                        None => {
-                            self.stack_error(&format!("Undefined property {}.", name));
-                            return Err(RuntimeError::GenericRuntimeError);
-                        }
-                    }
+                        None => self.bind_method(name, Weak::clone(&instance.borrow().class))?,
+                    };
+                    instance.borrow_mut().add_bound_method(bound_method);
                 }
                 Operation::SetProperty(index) => {
                     let Value::Instance(instance) = self.peek(self.current_slot() - 1)? else {
@@ -406,12 +409,30 @@ impl Vm {
                         return Err(RuntimeError::ConstantStringNotFound);
                     };
                     let value = self.pop();
+                    println!("setting property to {value:?}");
                     instance.borrow_mut().fields.insert(name, value.downgrade());
                     self.pop();
                     self.push(value);
                 }
+                Operation::Method(index) => {
+                    let Value::String(name) = self.read_constant(*index)? else {
+                        return Err(RuntimeError::ConstantStringNotFound);
+                    };
+                    self.define_method(name)?;
+                }
             }
         }
+    }
+
+    fn define_method(&mut self, name: String) -> InterpretResult<()> {
+        let Value::Closure(closure) = self.pop() else {
+            return Err(RuntimeError::ConstantClosureNotFound);
+        };
+        let Value::Class(class) = self.peek(self.current_slot())? else {
+            return Err(RuntimeError::ConstantClassNotFound);
+        };
+        class.borrow_mut().add_method(name, closure);
+        Ok(())
     }
 
     fn close_upvalues(&mut self, from: usize) -> InterpretResult<()> {
@@ -470,12 +491,20 @@ impl Vm {
                 Ok(())
             }
             Value::Class(class) => {
-                let slot = self.stack_top - (argument_count as usize + 1);
                 let instance = Value::Instance(Rc::new(RefCell::new(InstanceObject::new(
                     Rc::downgrade(class),
                 ))));
-                self.stack[slot].replace(instance);
+                self.stack[self.current_slot() - argument_count as usize].replace(instance);
                 Ok(())
+            }
+            Value::BoundMethod(bound_method) => {
+                let closure = bound_method
+                    .closure
+                    .upgrade()
+                    .ok_or(RuntimeError::BoundMethodGetClosure)?;
+                self.stack[self.current_slot() - argument_count as usize] =
+                    Some(Value::Instance(bound_method.receiver.upgrade().unwrap())); // TODO: fix unwrap
+                self.call(closure, argument_count)
             }
             _ => Err(RuntimeError::InvalidCallee),
         }
@@ -494,6 +523,29 @@ impl Vm {
             closure,
             ip: 0,
         })
+    }
+
+    fn bind_method(
+        &mut self,
+        name: String,
+        class: Weak<RefCell<ClassObject>>,
+    ) -> InterpretResult<Rc<BoundMethodObject>> {
+        let class = class.upgrade().ok_or(RuntimeError::InstanceGetClass)?;
+        let class = class.borrow();
+        let closure = class
+            .methods
+            .get(&name)
+            .ok_or(RuntimeError::UndefinedProperty(name))?;
+
+        let Value::Instance(receiver) = self.pop() else {
+            return Err(RuntimeError::BindMethodReceiver);
+        };
+        let bound_method = Rc::new(BoundMethodObject::new(
+            Rc::downgrade(&receiver),
+            Rc::downgrade(&closure),
+        ));
+        self.push(Value::BoundMethod(Rc::clone(&bound_method)));
+        Ok(bound_method)
     }
 
     pub fn interpret(&mut self, source: &str) -> InterpretResult<()> {

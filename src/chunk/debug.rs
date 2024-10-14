@@ -28,7 +28,8 @@ impl Chunk {
             | Operation::GetProperty(index)
             | Operation::SetProperty(index)
             | Operation::Closure(index)
-            | Operation::Class(index) => {
+            | Operation::Class(index)
+            | Operation::Method(index) => {
                 self.disassemble_constant_instruction(operation, index as usize)
             }
             Operation::GetLocal(slot_value)

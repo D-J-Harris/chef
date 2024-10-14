@@ -27,10 +27,11 @@ impl NativeFunctionObject {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FunctionKind {
     Script,
     Function,
+    Method,
 }
 
 #[derive(Debug)]
@@ -90,11 +91,19 @@ impl UpvalueObject {
 #[derive(Debug)]
 pub struct ClassObject {
     pub name: String,
+    pub methods: HashMap<String, Rc<ClosureObject>>,
 }
 
 impl ClassObject {
     pub fn new(name: &str) -> Self {
-        Self { name: name.into() }
+        Self {
+            name: name.into(),
+            methods: HashMap::new(),
+        }
+    }
+
+    pub fn add_method(&mut self, name: String, value: Rc<ClosureObject>) {
+        self.methods.insert(name, value);
     }
 }
 
@@ -102,6 +111,7 @@ impl ClassObject {
 pub struct InstanceObject {
     pub class: Weak<RefCell<ClassObject>>,
     pub fields: HashMap<String, WeakValue>,
+    pub bound_methods: Vec<Rc<BoundMethodObject>>,
 }
 
 impl InstanceObject {
@@ -109,13 +119,34 @@ impl InstanceObject {
         Self {
             class,
             fields: HashMap::new(),
+            bound_methods: Vec::new(),
         }
+    }
+
+    pub fn add_bound_method(&mut self, bound_method: Rc<BoundMethodObject>) {
+        self.bound_methods.push(bound_method);
     }
 }
 
+#[derive(Debug)]
+pub struct BoundMethodObject {
+    pub receiver: Weak<RefCell<InstanceObject>>,
+    pub closure: Weak<ClosureObject>,
+}
+
+impl BoundMethodObject {
+    pub fn new(receiver: Weak<RefCell<InstanceObject>>, closure: Weak<ClosureObject>) -> Self {
+        Self { receiver, closure }
+    }
+}
+
+// TODO: better messages here
 #[cfg(feature = "debug_trace_gc")]
 mod debug {
-    use super::{ClassObject, ClosureObject, FunctionObject, InstanceObject, UpvalueObject};
+    use super::{
+        BoundMethodObject, ClassObject, ClosureObject, FunctionObject, InstanceObject,
+        UpvalueObject,
+    };
 
     impl Drop for FunctionObject {
         fn drop(&mut self) {
@@ -152,6 +183,12 @@ mod debug {
     impl Drop for InstanceObject {
         fn drop(&mut self) {
             println!("dropped class instance {:?}", self)
+        }
+    }
+
+    impl Drop for BoundMethodObject {
+        fn drop(&mut self) {
+            println!("dropped bound method {:?}", self)
         }
     }
 }

@@ -22,12 +22,18 @@ pub enum RuntimeError {
     InstanceSetProperty,
     #[error("Call to closure does not have an associated function.")]
     ClosureGetFunction,
+    #[error("Call to instance does not have an associated class.")]
+    InstanceGetClass,
+    #[error("Call to bound method does not have a closure.")]
+    BoundMethodGetClosure,
     #[error("Expected {0} arguments but got {1}.")]
     FunctionArity(u8, u8),
     #[error("Can only call functions and classes.")]
     InvalidCallee,
     #[error("Undefined variable '{0}'.")]
     UndefinedVariable(String),
+    #[error("Undefined property '{0}'.")]
+    UndefinedProperty(String),
     #[error("Operand must be a number.")]
     ValueNegationOperation,
     #[error("Operands must be numbers.")]
@@ -40,8 +46,12 @@ pub enum RuntimeError {
     ConstantStringNotFound,
     #[error("No function name initialized.")]
     ConstantFunctionNotFound,
+    #[error("No closure name initialized.")]
+    ConstantClosureNotFound,
     #[error("No class name initialized.")]
     ConstantClassNotFound,
+    #[error("No instance to bind method to.")]
+    BindMethodReceiver,
     #[error("Invalid closure opcodes")]
     ClosureOpcode, // TODO: can be removed with more trust in code?
     #[error("Generic error while transitioning.")] // TODO: remove once done

@@ -31,7 +31,8 @@ cargo run --features debug_print_code ./example.chef
 - [ ] Clean up chunk debugging once `Operation` has been amending to carry no data
 - [ ] Change Option in fixed sized arrays to MaybeUninit and measure performance improvements (unsafe)
 - [ ] Add String interning
-- [ ] Fix tests - class, assignment/this, 
+- [ ] Fix tests - class, assignment/this,
+- [ ] Trust your own compiler - do unwraps and explicit access when the VM should trust things to be where they should. This might allow for improvements on optimisation around Weak refs
 
 ## Challenges
 
@@ -62,7 +63,8 @@ Roots for objects on the heap are
 - Global variables
 - Compiler functions
 - Open upvalues
-- Function constants should be `Rc<T>` so that values survive between the
+- [Bonus] Class methods - these closures are temporaries, otherwise dropped during `define_method`
+- [Bonus] Bound methods as instance fields - these are temporaries, otherwise dropped following the conclusion of `SetProperty`
 
 In theory, if every other object reference besides these are `Weak<T>` then we can have Rust's memory model manage garbage collection for us
 

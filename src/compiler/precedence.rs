@@ -44,6 +44,7 @@ impl Parser<'_> {
             ParseFunctionKind::Or => Self::or(self),
             ParseFunctionKind::Call => Self::call(self),
             ParseFunctionKind::Dot => Self::dot(self, Self::can_assign(precedence)),
+            ParseFunctionKind::This => Self::this(self, Self::can_assign(precedence)),
         }
     }
 
@@ -121,7 +122,7 @@ impl Parser<'_> {
         self.named_variable(self.previous.lexeme, can_assign);
     }
 
-    fn named_variable(&mut self, token_name: &str, can_assign: bool) {
+    pub fn named_variable(&mut self, token_name: &str, can_assign: bool) {
         let (get_operation, set_operation) = match resolve_local(&self.compiler.context, token_name)
         {
             Ok(Some(constant_index)) => (
@@ -219,6 +220,10 @@ impl Parser<'_> {
             self.emit_operation(Operation::GetProperty(name_index));
         }
     }
+
+    fn this(&mut self, can_assign: bool) {
+        self.variable(false);
+    }
 }
 
 fn resolve_local(compiler: &CompilerContext, token_name: &str) -> Result<Option<u8>, String> {
@@ -299,6 +304,7 @@ enum ParseFunctionKind {
     Or,
     Call,
     Dot,
+    This,
 }
 
 pub struct ParseRule {
@@ -497,7 +503,7 @@ impl Precedence {
                 precedence: Precedence::None,
             },
             TokenKind::This => ParseRule {
-                prefix: ParseFunctionKind::None,
+                prefix: ParseFunctionKind::This,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },

@@ -103,8 +103,25 @@ impl<'source> Parser<'source> {
         self.emit_operation(Operation::Class(name_constant_index));
         self.define_variable(name_constant_index);
 
+        self.named_variable(&self.previous.lexeme, false);
         self.consume(TokenKind::LeftBrace, "Expect '{' before class body.");
+        while !self.check_current_token(TokenKind::RightBrace)
+            && !self.check_current_token(TokenKind::Eof)
+        {
+            self.method();
+        }
         self.consume(TokenKind::RightBrace, "Expect '}' after class body.");
+        self.emit_operation(Operation::Pop);
+    }
+
+    fn method(&mut self) {
+        self.consume(TokenKind::Identifier, "Expect method name.");
+        let Some(constant_index) = self.constant_identifier(&self.previous.lexeme) else {
+            self.error("No constants defined.");
+            return;
+        };
+        self.function(FunctionKind::Method);
+        self.emit_operation(Operation::Method(constant_index));
     }
 
     fn fun_declaration(&mut self) {
@@ -572,6 +589,9 @@ impl<'source> CompilerContext<'source> {
         let upvalues = std::array::from_fn(|_| Upvalue::default());
         let mut locals = std::array::from_fn(|_| Local::default());
         locals[0].depth = Some(0);
+        if function_kind != FunctionKind::Function {
+            locals[0].name = "this";
+        }
         Self {
             parent: None,
             function,

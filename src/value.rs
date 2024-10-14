@@ -5,7 +5,8 @@ use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
 use std::rc::{Rc, Weak};
 
 use crate::objects::{
-    ClassObject, ClosureObject, FunctionObject, InstanceObject, NativeFunctionObject,
+    BoundMethodObject, ClassObject, ClosureObject, FunctionObject, InstanceObject,
+    NativeFunctionObject,
 };
 
 #[derive(Debug, Clone)]
@@ -19,6 +20,7 @@ pub enum Value {
     Closure(Rc<ClosureObject>),
     Class(Rc<RefCell<ClassObject>>),
     Instance(Rc<RefCell<InstanceObject>>),
+    BoundMethod(Rc<BoundMethodObject>),
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +34,7 @@ pub enum WeakValue {
     Closure(Weak<ClosureObject>),
     Class(Weak<RefCell<ClassObject>>),
     Instance(Weak<RefCell<InstanceObject>>),
+    BoundMethod(Weak<BoundMethodObject>),
 }
 
 impl Value {
@@ -46,6 +49,7 @@ impl Value {
             Value::Closure(rc) => WeakValue::Closure(Rc::downgrade(rc)),
             Value::Class(rc) => WeakValue::Class(Rc::downgrade(rc)),
             Value::Instance(rc) => WeakValue::Instance(Rc::downgrade(rc)),
+            Value::BoundMethod(rc) => WeakValue::BoundMethod(Rc::downgrade(rc)),
         }
     }
 }
@@ -62,6 +66,7 @@ impl WeakValue {
             WeakValue::Closure(weak) => Value::Closure(weak.upgrade().unwrap()),
             WeakValue::Class(weak) => Value::Class(weak.upgrade().unwrap()),
             WeakValue::Instance(weak) => Value::Instance(weak.upgrade().unwrap()),
+            WeakValue::BoundMethod(weak) => Value::BoundMethod(weak.upgrade().unwrap()),
         }
     }
 }
@@ -92,6 +97,7 @@ impl Display for Value {
             Value::Closure(rc) => write!(f, "{}", rc.function_name),
             Value::Class(rc) => write!(f, "{}", rc.borrow().name),
             Value::Instance(_rc) => write!(f, "class instance"),
+            Value::BoundMethod(_rc) => write!(f, "bound method"),
         }
     }
 }
