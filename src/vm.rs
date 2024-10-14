@@ -15,6 +15,7 @@ const FRAMES_MAX: usize = 64;
 const STACK_MAX: usize = U8_MAX;
 const INIT_STRING: &str = "init";
 
+#[derive(Debug)]
 struct CallFrame {
     closure: Rc<ClosureObject>,
     slot: usize,
@@ -411,6 +412,9 @@ impl Vm {
                     };
                     let value = self.pop();
                     instance.borrow_mut().fields.insert(name, value.downgrade());
+                    if let Value::Closure(closure) = &value {
+                        instance.borrow_mut().add_closure(Rc::clone(&closure));
+                    };
                     self.pop();
                     self.push(value);
                 }
@@ -425,7 +429,6 @@ impl Vm {
                         return Err(RuntimeError::ConstantStringNotFound);
                     };
                     self.invoke(&method, *argument_count)?;
-                    self.pop_frame();
                 }
             }
         }
@@ -570,7 +573,8 @@ impl Vm {
             slot: self.stack_top - (argument_count as usize + 1),
             closure,
             ip: 0,
-        })
+        })?;
+        Ok(())
     }
 
     fn bind_method(

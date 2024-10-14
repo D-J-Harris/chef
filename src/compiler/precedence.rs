@@ -269,7 +269,6 @@ pub fn add_upvalue(
     index: u8,
     is_local: bool,
 ) -> Result<Option<u8>, String> {
-    println!("upvalue added");
     let upvalue_count = &mut compiler.function.upvalue_count;
     for i in 0..*upvalue_count {
         let upvalue = &mut compiler.upvalues[i as usize];
@@ -283,10 +282,6 @@ pub fn add_upvalue(
     compiler.upvalues[*upvalue_count as usize].is_local = is_local;
     compiler.upvalues[*upvalue_count as usize].index = index;
     *upvalue_count += 1;
-    println!(
-        "upvalues for {}: {:?}",
-        compiler.function.name, compiler.upvalues
-    );
     Ok(Some(*upvalue_count - 1))
 }
 

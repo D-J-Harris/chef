@@ -65,6 +65,8 @@ Roots for objects on the heap are
 - Open upvalues
 - [Bonus] Class methods - these closures are temporaries, otherwise dropped during `define_method`
 - [Bonus] Bound methods as instance fields - these are temporaries, otherwise dropped following the conclusion of `SetProperty`
+- [Bonus] Closures as instance fields - these should be around until the instance drops
+- ^^ maybe `WeakValue` needs `Rc` for bound methods and closures
 
 In theory, if every other object reference besides these are `Weak<T>` then we can have Rust's memory model manage garbage collection for us
 

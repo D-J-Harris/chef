@@ -113,6 +113,7 @@ pub struct InstanceObject {
     pub class: Weak<RefCell<ClassObject>>,
     pub fields: HashMap<String, WeakValue>,
     pub bound_methods: Vec<Rc<BoundMethodObject>>,
+    pub closures: Vec<Rc<ClosureObject>>,
 }
 
 impl InstanceObject {
@@ -121,11 +122,16 @@ impl InstanceObject {
             class,
             fields: HashMap::new(),
             bound_methods: Vec::new(),
+            closures: Vec::new(),
         }
     }
 
     pub fn add_bound_method(&mut self, bound_method: Rc<BoundMethodObject>) {
         self.bound_methods.push(bound_method);
+    }
+
+    pub fn add_closure(&mut self, closure: Rc<ClosureObject>) {
+        self.closures.push(closure);
     }
 }
 
