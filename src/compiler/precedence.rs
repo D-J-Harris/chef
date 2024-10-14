@@ -1,7 +1,7 @@
 use std::borrow::BorrowMut;
 use std::u8;
 
-use crate::{chunk::Operation, scanner::token::TokenKind, value::Value};
+use crate::{chunk::Operation, error::RuntimeError, scanner::token::TokenKind, value::Value};
 
 use super::{CompilerContext, Parser};
 
@@ -222,6 +222,10 @@ impl Parser<'_> {
     }
 
     fn this(&mut self, can_assign: bool) {
+        if self.class_compiler.is_none() {
+            self.error("Can't use 'this' outside of a class.");
+            return;
+        }
         self.variable(false);
     }
 }
@@ -240,7 +244,7 @@ fn resolve_local(compiler: &CompilerContext, token_name: &str) -> Result<Option<
 }
 
 fn resolve_upvalue(compiler: &mut CompilerContext, token_name: &str) -> Result<Option<u8>, String> {
-    if let Some(parent_compiler) = compiler.parent.as_deref_mut() {
+    if let Some(parent_compiler) = compiler.enclosing.as_deref_mut() {
         if let Some(local_index) = resolve_local(parent_compiler, token_name)? {
             parent_compiler.locals[local_index as usize]
                 .borrow_mut()

@@ -19,6 +19,7 @@ pub struct Parser<'source> {
     had_error: bool,
     panic_mode: bool,
     compiler: Compiler<'source>,
+    class_compiler: Option<Box<ClassCompiler>>,
 }
 
 impl<'source> Parser<'source> {
@@ -31,6 +32,7 @@ impl<'source> Parser<'source> {
             had_error: false,
             panic_mode: false,
             compiler: Compiler::new(),
+            class_compiler: None,
         }
     }
 
@@ -103,6 +105,10 @@ impl<'source> Parser<'source> {
         self.emit_operation(Operation::Class(name_constant_index));
         self.define_variable(name_constant_index);
 
+        let current_class_compiler = self.class_compiler.take();
+        let class_compiler = Box::new(ClassCompiler::new(current_class_compiler));
+        self.class_compiler = Some(class_compiler);
+
         self.named_variable(&self.previous.lexeme, false);
         self.consume(TokenKind::LeftBrace, "Expect '{' before class body.");
         while !self.check_current_token(TokenKind::RightBrace)
@@ -120,7 +126,11 @@ impl<'source> Parser<'source> {
             self.error("No constants defined.");
             return;
         };
-        self.function(FunctionKind::Method);
+        let function_kind = match self.previous.lexeme {
+            "init" => FunctionKind::Initializer,
+            _ => FunctionKind::Method,
+        };
+        self.function(function_kind);
         self.emit_operation(Operation::Method(constant_index));
     }
 
@@ -139,7 +149,7 @@ impl<'source> Parser<'source> {
         let compiler_context = CompilerContext::new(name, function_kind);
         let enclosing_compiler_context =
             std::mem::replace(&mut self.compiler.context, compiler_context);
-        self.compiler.context.parent = Some(Box::new(enclosing_compiler_context));
+        self.compiler.context.enclosing = Some(Box::new(enclosing_compiler_context));
     }
 
     fn function(&mut self, function_kind: FunctionKind) {
@@ -348,13 +358,17 @@ impl<'source> Parser<'source> {
     }
 
     fn return_statement(&mut self) {
-        if self.compiler.context.function.kind == FunctionKind::Script {
+        let current_function_kind = self.compiler.context.function.kind;
+        if current_function_kind == FunctionKind::Script {
             self.error("Can't return from top-level code.");
             return;
         }
         if self.r#match(TokenKind::Semicolon) {
             self.emit_return();
         } else {
+            if current_function_kind == FunctionKind::Initializer {
+                self.error("Can't return a value from an initializer.");
+            }
             self.expression();
             self.consume(TokenKind::Semicolon, "Expect ';' after return value.");
             self.emit_operation(Operation::Return);
@@ -519,7 +533,7 @@ impl<'source> Parser<'source> {
         #[cfg(feature = "debug_print_code")]
         self.compiler.debug();
 
-        self.compiler.context.parent.take().map(|parent| {
+        self.compiler.context.enclosing.take().map(|parent| {
             let context: CompilerContext<'source> =
                 std::mem::replace(&mut self.compiler.context, *parent);
             (context.function, context.upvalues)
@@ -527,7 +541,10 @@ impl<'source> Parser<'source> {
     }
 
     fn emit_return(&mut self) {
-        self.emit_operation(Operation::Nil);
+        match self.compiler.context.function.kind {
+            FunctionKind::Initializer => self.emit_operation(Operation::GetLocal(0)),
+            _ => self.emit_operation(Operation::Nil),
+        };
         self.emit_operation(Operation::Return);
     }
 
@@ -575,7 +592,7 @@ struct Upvalue {
 }
 
 struct CompilerContext<'source> {
-    pub parent: Option<Box<CompilerContext<'source>>>,
+    pub enclosing: Option<Box<CompilerContext<'source>>>,
     function: FunctionObject,
     scope_depth: u8,
     locals: [Local<'source>; U8_MAX],
@@ -593,13 +610,23 @@ impl<'source> CompilerContext<'source> {
             locals[0].name = "this";
         }
         Self {
-            parent: None,
+            enclosing: None,
             function,
             scope_depth: 0,
             locals,
             locals_count: 1,
             upvalues,
         }
+    }
+}
+
+pub struct ClassCompiler {
+    enclosing: Option<Box<ClassCompiler>>,
+}
+
+impl ClassCompiler {
+    fn new(enclosing: Option<Box<ClassCompiler>>) -> Self {
+        Self { enclosing }
     }
 }
 

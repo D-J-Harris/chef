@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 
 use crate::chunk::Operation;
 use crate::common::U8_MAX;
@@ -13,6 +13,7 @@ use crate::value::Value;
 
 const FRAMES_MAX: usize = 64;
 const STACK_MAX: usize = U8_MAX;
+const INIT_STRING: &str = "init";
 
 struct CallFrame {
     closure: Rc<ClosureObject>,
@@ -396,7 +397,7 @@ impl Vm {
                             self.push(value.upgrade());
                             continue;
                         }
-                        None => self.bind_method(name, Weak::clone(&instance.borrow().class))?,
+                        None => self.bind_method(name, Rc::clone(&instance))?,
                     };
                     instance.borrow_mut().add_bound_method(bound_method);
                 }
@@ -409,7 +410,6 @@ impl Vm {
                         return Err(RuntimeError::ConstantStringNotFound);
                     };
                     let value = self.pop();
-                    println!("setting property to {value:?}");
                     instance.borrow_mut().fields.insert(name, value.downgrade());
                     self.pop();
                     self.push(value);
@@ -477,7 +477,9 @@ impl Vm {
     }
 
     fn call_value(&mut self, argument_count: u8) -> InterpretResult<()> {
-        let callee = self.peek(self.current_slot() - argument_count as usize)?;
+        let callee = self
+            .peek(self.current_slot() - argument_count as usize)?
+            .clone(); // TODO: can mutable behaviour be allowed without cloning the peek here?
         match callee {
             Value::NativeFunction(function) => {
                 let result =
@@ -492,9 +494,14 @@ impl Vm {
             }
             Value::Class(class) => {
                 let instance = Value::Instance(Rc::new(RefCell::new(InstanceObject::new(
-                    Rc::downgrade(class),
+                    Rc::downgrade(&class),
                 ))));
                 self.stack[self.current_slot() - argument_count as usize].replace(instance);
+                if let Some(closure) = class.borrow().methods.get(INIT_STRING) {
+                    self.call(Rc::clone(&closure), argument_count)?;
+                } else if argument_count != 0 {
+                    return Err(RuntimeError::MissingClassInitMethod);
+                }
                 Ok(())
             }
             Value::BoundMethod(bound_method) => {
@@ -504,7 +511,8 @@ impl Vm {
                     .ok_or(RuntimeError::BoundMethodGetClosure)?;
                 self.stack[self.current_slot() - argument_count as usize] =
                     Some(Value::Instance(bound_method.receiver.upgrade().unwrap())); // TODO: fix unwrap
-                self.call(closure, argument_count)
+                self.call(closure, argument_count)?;
+                Ok(())
             }
             _ => Err(RuntimeError::InvalidCallee),
         }
@@ -528,20 +536,21 @@ impl Vm {
     fn bind_method(
         &mut self,
         name: String,
-        class: Weak<RefCell<ClassObject>>,
+        instance: Rc<RefCell<InstanceObject>>,
     ) -> InterpretResult<Rc<BoundMethodObject>> {
-        let class = class.upgrade().ok_or(RuntimeError::InstanceGetClass)?;
+        let class = instance
+            .as_ref()
+            .borrow()
+            .class
+            .upgrade()
+            .ok_or(RuntimeError::InstanceGetClass)?;
         let class = class.borrow();
         let closure = class
             .methods
             .get(&name)
             .ok_or(RuntimeError::UndefinedProperty(name))?;
-
-        let Value::Instance(receiver) = self.pop() else {
-            return Err(RuntimeError::BindMethodReceiver);
-        };
         let bound_method = Rc::new(BoundMethodObject::new(
-            Rc::downgrade(&receiver),
+            Rc::downgrade(&instance),
             Rc::downgrade(&closure),
         ));
         self.push(Value::BoundMethod(Rc::clone(&bound_method)));

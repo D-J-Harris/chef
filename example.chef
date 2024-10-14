@@ -1,21 +1,15 @@
-class Scone {
-  topping(i) {
-    print "scone " + i;
+class CoffeeMaker {
+  init(coffee) {
+    this.coffee = coffee;
+  }
+
+  brew() {
+    var b = CoffeeMaker("");
+    print "Enjoy your cup of " + this.coffee;
   }
 }
 
-class SconeAggressive {
-  topping(i) {
-    print "SCONE " + i;
-  }
-}
-
-{
-    var scone1 = Scone();
-    var scone2 = SconeAggressive();
-    scone1.add_other_topping = scone2.topping;
-    scone2.add_other_topping = scone1.topping;
-    scone1.add_other_topping("1");
-    scone2.add_other_topping("2");
-}
-print "done";
+var coffee = "caramel macchiato";
+var maker = CoffeeMaker(coffee);
+maker.brew();
+maker.brew();

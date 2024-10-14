@@ -50,8 +50,8 @@ pub enum RuntimeError {
     ConstantClosureNotFound,
     #[error("No class name initialized.")]
     ConstantClassNotFound,
-    #[error("No instance to bind method to.")]
-    BindMethodReceiver,
+    #[error("Expected 0 arguments but got %d.")]
+    MissingClassInitMethod,
     #[error("Invalid closure opcodes")]
     ClosureOpcode, // TODO: can be removed with more trust in code?
     #[error("Generic error while transitioning.")] // TODO: remove once done

@@ -32,6 +32,7 @@ pub enum FunctionKind {
     Script,
     Function,
     Method,
+    Initializer,
 }
 
 #[derive(Debug)]
