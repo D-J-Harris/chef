@@ -56,6 +56,8 @@ pub enum RuntimeError {
     ConstantSuperclassNotFound,
     #[error("Expected 0 arguments but got %d.")]
     MissingClassInitMethod,
+    #[error("Invalid field reference.")]
+    InstanceReferenceInvalid,
     #[error("Invalid closure opcodes")]
     ClosureOpcode, // TODO: can be removed with more trust in code?
     #[error("Generic error while transitioning.")] // TODO: remove once done

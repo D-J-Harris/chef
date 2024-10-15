@@ -86,4 +86,35 @@ This code is [MIT licensed](./LICENSE)
 
 ## Tricky Cases
 
-- suite/field.method - `GetProperty` pops the instance off the stack, so only a `Weak<T>` is left pointing at it by the bound method
+This one, the closure defined by `init()` is dropped, leaving the `Weak<T>` field reference on `this` empty
+
+```
+class Oops {
+  init() {
+    fun f() {
+      print "not a method";
+    }
+
+    this.field = f;
+  }
+}
+
+var oops = Oops();
+oops.field();
+```
+
+This one, the `Foo()` instance is dropped, leaving the assigned `BoundMethod.receiver` weak reference empty (since the receiver is the instance)
+
+```
+class Foo {
+  bar(arg) {
+    print arg;
+  }
+}
+{
+  var bar = Foo().bar;
+  print "got method";  // expect: got method
+  bar("arg");          // expect: arg
+}
+print "complete";
+```

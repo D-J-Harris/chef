@@ -7,7 +7,7 @@ use crate::common::U8_MAX;
 use crate::compiler::Parser;
 use crate::error::{InterpretResult, RuntimeError};
 use crate::objects::{
-    BoundMethodObject, ClassObject, ClosureObject, FunctionObject, InstanceObject, UpvalueObject,
+    BoundMethod, ClassObject, ClosureObject, FunctionObject, InstanceObject, UpvalueObject,
 };
 use crate::value::Value;
 
@@ -190,7 +190,6 @@ impl Vm {
                     let result = self.pop();
                     self.close_upvalues(frame.slot)?;
                     if self.frame_count == 0 {
-                        // self.pop();
                         return Ok(());
                     }
                     // Unwind the current call frame from the stack.
@@ -390,9 +389,9 @@ impl Vm {
                         return Err(RuntimeError::ConstantStringNotFound);
                     };
                     let instance = Rc::clone(instance);
-                    let bound_method = match instance.borrow().fields.get(&name) {
+                    match instance.borrow().fields.get(&name) {
                         Some(value) => {
-                            let value = value.upgrade();
+                            let value = value.try_into()?;
                             self.pop();
                             self.push(value);
                             continue;
@@ -405,10 +404,9 @@ impl Vm {
                                 .upgrade()
                                 .ok_or(RuntimeError::InstanceGetClass)?;
                             let class = class.as_ref();
-                            self.bind_method(name, class)?
+                            self.bind_method(name, class)?;
                         }
                     };
-                    instance.borrow_mut().add_bound_method(bound_method);
                 }
                 Operation::SetProperty(index) => {
                     let Value::Instance(instance) = self.peek(self.current_slot() - 1)? else {
@@ -419,10 +417,10 @@ impl Vm {
                         return Err(RuntimeError::ConstantStringNotFound);
                     };
                     let value = self.pop();
-                    instance.borrow_mut().fields.insert(name, value.downgrade());
-                    if let Value::Closure(closure) = &value {
-                        instance.borrow_mut().add_closure(Rc::clone(&closure));
-                    };
+                    instance
+                        .borrow_mut()
+                        .fields
+                        .insert(name, value.clone().into());
                     self.pop();
                     self.push(value);
                 }
@@ -480,8 +478,8 @@ impl Vm {
         else {
             return Err(RuntimeError::InstanceInvoke);
         };
-        if let Some(value) = Rc::clone(&receiver).borrow().fields.get(method) {
-            let value = value.upgrade();
+        if let Some(field_value) = Rc::clone(&receiver).borrow().fields.get(method) {
+            let value = field_value.try_into()?;
             self.stack[self.current_slot() - argument_count as usize] = Some(value);
             return self.call_value(argument_count);
         }
@@ -594,7 +592,7 @@ impl Vm {
                     .upgrade()
                     .ok_or(RuntimeError::BoundMethodGetClosure)?;
                 self.stack[self.current_slot() - argument_count as usize] =
-                    Some(Value::Instance(bound_method.receiver.upgrade().unwrap())); // TODO: fix unwrap
+                    Some(Value::Instance(Rc::clone(&bound_method.receiver)));
                 self.call(closure, argument_count)?;
                 Ok(())
             }
@@ -618,11 +616,7 @@ impl Vm {
         Ok(())
     }
 
-    fn bind_method(
-        &mut self,
-        name: String,
-        class: &RefCell<ClassObject>,
-    ) -> InterpretResult<Rc<BoundMethodObject>> {
+    fn bind_method(&mut self, name: String, class: &RefCell<ClassObject>) -> InterpretResult<()> {
         let class = class.borrow();
         let closure = class
             .methods
@@ -631,12 +625,9 @@ impl Vm {
         let Value::Instance(receiver) = self.pop() else {
             panic!("instance not on stack"); // TODO: cleanup
         };
-        let bound_method = Rc::new(BoundMethodObject::new(
-            Rc::downgrade(&receiver),
-            Rc::downgrade(&closure),
-        ));
-        self.push(Value::BoundMethod(Rc::clone(&bound_method)));
-        Ok(bound_method)
+        let bound_method = BoundMethod::new(Rc::clone(&receiver), Rc::downgrade(&closure));
+        self.push(Value::BoundMethod(bound_method));
+        Ok(())
     }
 
     pub fn interpret(&mut self, source: &str) -> InterpretResult<()> {

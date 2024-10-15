@@ -1,12 +1,7 @@
-class Oops {
-  init() {
-    fun f() {
-      print "not a method";
-    }
-
-    this.field = f;
-  }
+class Node {}
+{
+    var n1 = Node();
+    var n2 = Node();
+    n1.inner = n2;
+    n2.inner = n1;
 }
-
-var oops = Oops();
-oops.field();

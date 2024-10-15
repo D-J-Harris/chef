@@ -5,8 +5,7 @@ use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
 use std::rc::{Rc, Weak};
 
 use crate::objects::{
-    BoundMethodObject, ClassObject, ClosureObject, FunctionObject, InstanceObject,
-    NativeFunctionObject,
+    BoundMethod, ClassObject, ClosureObject, FunctionObject, InstanceObject, NativeFunctionObject,
 };
 
 #[derive(Debug, Clone)]
@@ -15,58 +14,63 @@ pub enum Value {
     Number(f64),
     Boolean(bool),
     String(String),
+    BoundMethod(BoundMethod),
     Function(Rc<FunctionObject>),
     NativeFunction(Rc<NativeFunctionObject>),
     Closure(Rc<ClosureObject>),
     Class(Rc<RefCell<ClassObject>>),
     Instance(Rc<RefCell<InstanceObject>>),
-    BoundMethod(Rc<BoundMethodObject>),
 }
 
 #[derive(Debug, Clone)]
-pub enum WeakValue {
+pub enum FieldValue {
     Nil,
     Number(f64),
     Boolean(bool),
     String(String),
-    Function(Weak<FunctionObject>),
-    NativeFunction(Weak<NativeFunctionObject>),
-    Closure(Weak<ClosureObject>),
-    Class(Weak<RefCell<ClassObject>>),
+    Function(Rc<FunctionObject>),
+    NativeFunction(Rc<NativeFunctionObject>),
+    Closure(Rc<ClosureObject>),
+    Class(Rc<RefCell<ClassObject>>),
     Instance(Weak<RefCell<InstanceObject>>),
-    BoundMethod(Weak<BoundMethodObject>),
+    BoundMethod(BoundMethod),
 }
 
-impl Value {
-    pub fn downgrade(&self) -> WeakValue {
-        match self {
-            Value::Nil => WeakValue::Nil,
-            Value::Number(number) => WeakValue::Number(*number),
-            Value::Boolean(boolean) => WeakValue::Boolean(*boolean),
-            Value::String(string) => WeakValue::String(string.clone()),
-            Value::Function(rc) => WeakValue::Function(Rc::downgrade(rc)),
-            Value::NativeFunction(rc) => WeakValue::NativeFunction(Rc::downgrade(rc)),
-            Value::Closure(rc) => WeakValue::Closure(Rc::downgrade(rc)),
-            Value::Class(rc) => WeakValue::Class(Rc::downgrade(rc)),
-            Value::Instance(rc) => WeakValue::Instance(Rc::downgrade(rc)),
-            Value::BoundMethod(rc) => WeakValue::BoundMethod(Rc::downgrade(rc)),
-        }
+impl TryFrom<&FieldValue> for Value {
+    type Error = RuntimeError;
+
+    fn try_from(value: &FieldValue) -> Result<Self, Self::Error> {
+        Ok(match value {
+            FieldValue::Nil => Value::Nil,
+            FieldValue::Number(x) => Value::Number(*x),
+            FieldValue::Boolean(x) => Value::Boolean(*x),
+            FieldValue::String(x) => Value::String(x.clone()),
+            FieldValue::Function(rc) => Value::Function(Rc::clone(rc)),
+            FieldValue::NativeFunction(rc) => Value::NativeFunction(Rc::clone(rc)),
+            FieldValue::Closure(rc) => Value::Closure(Rc::clone(rc)),
+            FieldValue::Class(rc) => Value::Class(Rc::clone(rc)),
+            FieldValue::Instance(weak) => Value::Instance(
+                weak.upgrade()
+                    .ok_or(RuntimeError::InstanceReferenceInvalid)?,
+            ),
+            FieldValue::BoundMethod(bound_method) => Value::BoundMethod(bound_method.clone()),
+        })
     }
 }
 
-impl WeakValue {
-    pub fn upgrade(&self) -> Value {
-        match self {
-            WeakValue::Nil => Value::Nil,
-            WeakValue::Number(number) => Value::Number(*number),
-            WeakValue::Boolean(boolean) => Value::Boolean(*boolean),
-            WeakValue::String(string) => Value::String(string.clone()),
-            WeakValue::Function(weak) => Value::Function(weak.upgrade().unwrap()), // TODO: proper error handling, this error can and should make it to a user e.g. if they try to print a memnber whose variable dropped out of scope
-            WeakValue::NativeFunction(weak) => Value::NativeFunction(weak.upgrade().unwrap()),
-            WeakValue::Closure(weak) => Value::Closure(weak.upgrade().unwrap()),
-            WeakValue::Class(weak) => Value::Class(weak.upgrade().unwrap()),
-            WeakValue::Instance(weak) => Value::Instance(weak.upgrade().unwrap()),
-            WeakValue::BoundMethod(weak) => Value::BoundMethod(weak.upgrade().unwrap()),
+impl From<Value> for FieldValue {
+    fn from(value: Value) -> Self {
+        match value {
+            Value::Nil => FieldValue::Nil,
+            Value::Number(x) => FieldValue::Number(x),
+            Value::Boolean(x) => FieldValue::Boolean(x),
+            Value::String(x) => FieldValue::String(x.clone()),
+            Value::Function(rc) => FieldValue::Function(Rc::clone(&rc)),
+            Value::NativeFunction(rc) => FieldValue::NativeFunction(Rc::clone(&rc)),
+            Value::Closure(rc) => FieldValue::Closure(Rc::clone(&rc)),
+            Value::Class(rc) => FieldValue::Class(Rc::clone(&rc)),
+            Value::Instance(weak) => FieldValue::Instance(Rc::downgrade(&weak)),
+            Value::BoundMethod(bound_method) => FieldValue::BoundMethod(bound_method.clone()),
         }
     }
 }
