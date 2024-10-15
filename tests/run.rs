@@ -67,7 +67,7 @@ fn parse_comments(path: &PathBuf) -> Expected {
     expected
 }
 
-#[test_resources("tests/suite/closure/*.lox")]
+#[test_resources("tests/suite/field/*.lox")]
 fn run_file_test(filename: &str) {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push(filename);

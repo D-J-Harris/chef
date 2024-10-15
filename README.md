@@ -83,3 +83,7 @@ cargo test
 [Test suite runner code](./tests/run.rs) inspired from [Manuel Cerón](https://github.com/ceronman/loxido/tree/unsafe) (MIT licensed)
 
 This code is [MIT licensed](./LICENSE)
+
+## Tricky Cases
+
+- suite/field.method - `GetProperty` pops the instance off the stack, so only a `Weak<T>` is left pointing at it by the bound method

@@ -83,7 +83,7 @@ impl Vm {
         Ok(operation)
     }
 
-    pub fn stack_error(&mut self, _err: &str) {
+    pub fn stack_error(&mut self) {
         for frame_index in (0..self.frame_count).rev() {
             let frame = self.frames[frame_index]
                 .as_ref()
@@ -207,7 +207,7 @@ impl Vm {
                     self.push(value);
                 }
                 Operation::Negate => {
-                    let mut constant = self.pop();
+                    let constant = self.peek_mut(self.current_slot())?;
                     constant.negate()?
                 }
                 Operation::Add => {
@@ -330,10 +330,8 @@ impl Vm {
                         } else {
                             let Some(upvalue) =
                                 &self.current_frame().closure.upvalues[index as usize]
-                            // TODO: is this right?
                             else {
-                                self.stack_error("Invalid upvalue location");
-                                return Err(RuntimeError::GenericRuntimeError);
+                                return Err(RuntimeError::OutOfBounds);
                             };
                             closure_object.upvalues[i as usize] = Some(upvalue.clone())
                         }
@@ -343,8 +341,7 @@ impl Vm {
                 Operation::GetUpvalue(upvalue_slot) => {
                     let slot = *upvalue_slot as usize;
                     let Some(upvalue) = &self.current_frame().closure.upvalues[slot] else {
-                        self.stack_error("No upvalue to get.");
-                        return Err(RuntimeError::GenericRuntimeError);
+                        return Err(RuntimeError::OutOfBounds);
                     };
                     let value = match &*upvalue.borrow() {
                         UpvalueObject::Open(value_slot) => {
@@ -361,8 +358,7 @@ impl Vm {
                     let slot = *upvalue_slot as usize;
                     let replacement_value = self.peek(self.current_slot())?.clone();
                     let Some(ref upvalue) = self.current_frame().closure.upvalues[slot] else {
-                        self.stack_error("No upvalue to get.");
-                        return Err(RuntimeError::GenericRuntimeError);
+                        return Err(RuntimeError::OutOfBounds);
                     };
                     let slot = *match &mut *upvalue.borrow_mut() {
                         UpvalueObject::Open(value_slot) => value_slot,
@@ -396,8 +392,9 @@ impl Vm {
                     let instance = Rc::clone(instance);
                     let bound_method = match instance.borrow().fields.get(&name) {
                         Some(value) => {
+                            let value = value.upgrade();
                             self.pop();
-                            self.push(value.upgrade());
+                            self.push(value);
                             continue;
                         }
                         None => {
@@ -644,21 +641,28 @@ impl Vm {
 
     pub fn interpret(&mut self, source: &str) -> InterpretResult<()> {
         let parser = Parser::new(source);
-        match parser.compile() {
-            Some(function) => {
-                // insert script as global
-                let function = Rc::new(function);
-                self.push(Value::Function(Rc::clone(&function)));
-                let closure = Rc::new(ClosureObject::new(
-                    &function.name,
-                    function.upvalue_count,
-                    Rc::downgrade(&function),
-                ));
-                self.call(closure, 0)
-                    .expect("Failed to call top-level script.")
+        let Some(function) = parser.compile() else {
+            return Err(RuntimeError::CompileError); // TODO: can propagate this error from parser.compile()
+        };
+        let function = Rc::new(function);
+        self.push(Value::Function(Rc::clone(&function)));
+        let closure = Rc::new(ClosureObject::new(
+            &function.name,
+            function.upvalue_count,
+            Rc::downgrade(&function),
+        ));
+        self.call(closure, 0)
+            .expect("Failed to call top-level script.");
+        let result = self.run();
+        if let Err(err) = &result {
+            match err {
+                RuntimeError::CompileError => (),
+                _ => {
+                    eprintln!("{err}");
+                    self.stack_error();
+                }
             }
-            None => return Err(RuntimeError::CompileError), // TODO: can propagate this error from parser.compile()
-        }
-        self.run()
+        };
+        result
     }
 }
