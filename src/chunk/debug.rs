@@ -29,7 +29,8 @@ impl Chunk {
             | Operation::SetProperty(index)
             | Operation::Closure(index)
             | Operation::Class(index)
-            | Operation::Method(index) => {
+            | Operation::Method(index)
+            | Operation::GetSuper(index) => {
                 self.disassemble_constant_instruction(operation, index as usize)
             }
             Operation::GetLocal(slot_value)
@@ -58,13 +59,15 @@ impl Chunk {
             | Operation::Print
             | Operation::Pop
             | Operation::Return
-            | Operation::CloseUpvalue => self.disassemble_simple_instruction(operation),
+            | Operation::CloseUpvalue
+            | Operation::Inherit => self.disassemble_simple_instruction(operation),
             Operation::ClosureIsLocalByte(is_local) => match is_local {
                 true => println!("Local Value:"),
                 false => println!("Upvalue:"),
             },
             Operation::ClosureIndexByte(index) => println!("Index {}", index),
-            Operation::Invoke(index, argument_count) => {
+            Operation::Invoke(index, argument_count)
+            | Operation::SuperInvoke(index, argument_count) => {
                 self.disassemble_invoke_instruction(index as usize, argument_count)
             }
         }

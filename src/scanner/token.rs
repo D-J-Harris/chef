@@ -58,7 +58,7 @@ impl<'source> Token<'source> {
     pub fn initial() -> Token<'source> {
         Token {
             kind: TokenKind::Error,
-            lexeme: "Found initial token.",
+            lexeme: "",
             line: 1,
         }
     }

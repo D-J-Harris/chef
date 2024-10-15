@@ -21,6 +21,7 @@ pub enum Operation {
     Print,
     Pop,
     CloseUpvalue,
+    Inherit,
     Call(u8),
     Constant(u8),
     Class(u8),
@@ -41,6 +42,8 @@ pub enum Operation {
     ClosureIndexByte(u8),
     Method(u8),
     Invoke(u8, u8),
+    SuperInvoke(u8, u8),
+    GetSuper(u8),
 }
 
 #[derive(Debug)]

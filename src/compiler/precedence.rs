@@ -1,7 +1,7 @@
 use std::borrow::BorrowMut;
 use std::u8;
 
-use crate::{chunk::Operation, error::RuntimeError, scanner::token::TokenKind, value::Value};
+use crate::{chunk::Operation, scanner::token::TokenKind, value::Value};
 
 use super::{CompilerContext, Parser};
 
@@ -45,6 +45,7 @@ impl Parser<'_> {
             ParseFunctionKind::Call => Self::call(self),
             ParseFunctionKind::Dot => Self::dot(self, Self::can_assign(precedence)),
             ParseFunctionKind::This => Self::this(self, Self::can_assign(precedence)),
+            ParseFunctionKind::Super => Self::super_(self, Self::can_assign(precedence)),
         }
     }
 
@@ -118,7 +119,7 @@ impl Parser<'_> {
         self.emit_constant(Value::String(constant.into()));
     }
 
-    fn variable(&mut self, can_assign: bool) {
+    pub fn variable(&mut self, can_assign: bool) {
         self.named_variable(self.previous.lexeme, can_assign);
     }
 
@@ -234,6 +235,35 @@ impl Parser<'_> {
         }
         self.variable(false);
     }
+
+    fn super_(&mut self, can_assign: bool) {
+        match &self.class_compiler {
+            None => self.error("Can't use 'super' outside of a class."),
+            Some(class) => {
+                if !class.has_superclass {
+                    self.error("Can't use 'super' in a class with no superclass.");
+                }
+            }
+        }
+        self.consume(TokenKind::Dot, "Expect '.' after 'super'.");
+        self.consume(TokenKind::Identifier, "Expect superclass method name.");
+        let Some(name_index) = self.constant_identifier(self.previous.lexeme) else {
+            self.error(&format!("No constant with name {}", self.previous.lexeme));
+            return;
+        };
+        self.named_variable("this", false);
+        if self.r#match(TokenKind::LeftParen) {
+            let Some(argument_count) = self.argument_list() else {
+                self.error("Can't have more than 255 arguments.");
+                return;
+            };
+            self.named_variable("super", false);
+            self.emit_operation(Operation::SuperInvoke(name_index, argument_count));
+        } else {
+            self.named_variable("super", false);
+            self.emit_operation(Operation::GetSuper(name_index));
+        }
+    }
 }
 
 fn resolve_local(compiler: &CompilerContext, token_name: &str) -> Result<Option<u8>, String> {
@@ -315,6 +345,7 @@ enum ParseFunctionKind {
     Call,
     Dot,
     This,
+    Super,
 }
 
 pub struct ParseRule {
@@ -508,7 +539,7 @@ impl Precedence {
                 precedence: Precedence::None,
             },
             TokenKind::Super => ParseRule {
-                prefix: ParseFunctionKind::None,
+                prefix: ParseFunctionKind::Super,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },

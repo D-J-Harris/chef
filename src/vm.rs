@@ -186,11 +186,11 @@ impl Vm {
                 .disassemble_instruction(self.current_frame().ip - 1);
             match &operation {
                 Operation::Return => {
-                    let result = self.pop();
-                    self.close_upvalues(self.current_frame().slot)?;
                     let frame = self.pop_frame();
+                    let result = self.pop();
+                    self.close_upvalues(frame.slot)?;
                     if self.frame_count == 0 {
-                        self.pop();
+                        // self.pop();
                         return Ok(());
                     }
                     // Unwind the current call frame from the stack.
@@ -328,7 +328,9 @@ impl Vm {
                             let upvalue_slot = self.current_frame().slot + index as usize;
                             *upvalue = Some(self.capture_upvalue(upvalue_slot));
                         } else {
-                            let Some(upvalue) = &self.current_frame().closure.upvalues[i as usize]
+                            let Some(upvalue) =
+                                &self.current_frame().closure.upvalues[index as usize]
+                            // TODO: is this right?
                             else {
                                 self.stack_error("Invalid upvalue location");
                                 return Err(RuntimeError::GenericRuntimeError);
@@ -372,7 +374,7 @@ impl Vm {
                     self.stack[slot] = Some(replacement_value)
                 }
                 Operation::CloseUpvalue => {
-                    self.close_upvalues(self.stack_top)?;
+                    self.close_upvalues(self.current_slot())?;
                     self.pop();
                 }
                 Operation::ClosureIsLocalByte(_) => unreachable!(),
@@ -388,17 +390,26 @@ impl Vm {
                     let Value::Instance(instance) = self.peek(self.current_slot())? else {
                         return Err(RuntimeError::InstanceGetProperty);
                     };
-                    let instance = Rc::clone(instance);
                     let Value::String(name) = self.read_constant(*index)? else {
                         return Err(RuntimeError::ConstantStringNotFound);
                     };
+                    let instance = Rc::clone(instance);
                     let bound_method = match instance.borrow().fields.get(&name) {
                         Some(value) => {
                             self.pop();
                             self.push(value.upgrade());
                             continue;
                         }
-                        None => self.bind_method(name, Rc::clone(&instance))?,
+                        None => {
+                            let instance = Rc::clone(&instance);
+                            let class = instance
+                                .borrow()
+                                .class
+                                .upgrade()
+                                .ok_or(RuntimeError::InstanceGetClass)?;
+                            let class = class.as_ref();
+                            self.bind_method(name, class)?
+                        }
                     };
                     instance.borrow_mut().add_bound_method(bound_method);
                 }
@@ -429,6 +440,39 @@ impl Vm {
                         return Err(RuntimeError::ConstantStringNotFound);
                     };
                     self.invoke(&method, *argument_count)?;
+                }
+                Operation::Inherit => {
+                    let Value::Class(superclass) = self.peek(self.current_slot() - 1)? else {
+                        return Err(RuntimeError::ConstantSuperclassNotFound);
+                    };
+                    let Value::Class(subclass) = self.peek(self.current_slot())? else {
+                        return Err(RuntimeError::ConstantClassNotFound);
+                    };
+                    for (name, method) in superclass.borrow().methods.iter() {
+                        subclass
+                            .borrow_mut()
+                            .methods
+                            .insert(name.clone(), Rc::clone(&method));
+                    }
+                    self.pop();
+                }
+                Operation::GetSuper(index) => {
+                    let Value::String(method) = self.read_constant(*index)? else {
+                        return Err(RuntimeError::ConstantStringNotFound);
+                    };
+                    let Value::Class(superclass) = self.pop() else {
+                        return Err(RuntimeError::ConstantSuperclassNotFound);
+                    };
+                    self.bind_method(method, superclass.as_ref())?;
+                }
+                Operation::SuperInvoke(index, argument_count) => {
+                    let Value::String(method) = self.read_constant(*index)? else {
+                        return Err(RuntimeError::ConstantStringNotFound);
+                    };
+                    let Value::Class(superclass) = self.pop() else {
+                        return Err(RuntimeError::ConstantSuperclassNotFound);
+                    };
+                    self.invoke_from_class(superclass, &method, *argument_count)?;
                 }
             }
         }
@@ -580,21 +624,18 @@ impl Vm {
     fn bind_method(
         &mut self,
         name: String,
-        instance: Rc<RefCell<InstanceObject>>,
+        class: &RefCell<ClassObject>,
     ) -> InterpretResult<Rc<BoundMethodObject>> {
-        let class = instance
-            .as_ref()
-            .borrow()
-            .class
-            .upgrade()
-            .ok_or(RuntimeError::InstanceGetClass)?;
         let class = class.borrow();
         let closure = class
             .methods
             .get(&name)
             .ok_or(RuntimeError::UndefinedProperty(name))?;
+        let Value::Instance(receiver) = self.pop() else {
+            panic!("instance not on stack"); // TODO: cleanup
+        };
         let bound_method = Rc::new(BoundMethodObject::new(
-            Rc::downgrade(&instance),
+            Rc::downgrade(&receiver),
             Rc::downgrade(&closure),
         ));
         self.push(Value::BoundMethod(Rc::clone(&bound_method)));
@@ -613,7 +654,6 @@ impl Vm {
                     function.upvalue_count,
                     Rc::downgrade(&function),
                 ));
-                self.push(Value::Closure(Rc::clone(&closure)));
                 self.call(closure, 0)
                     .expect("Failed to call top-level script.")
             }

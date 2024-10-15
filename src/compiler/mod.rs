@@ -1,8 +1,6 @@
 use std::rc::Rc;
 use std::u8;
 
-use precedence::add_upvalue;
-
 use crate::common::U8_MAX;
 use crate::objects::{FunctionKind, FunctionObject};
 use crate::scanner::token::Token;
@@ -99,7 +97,8 @@ impl<'source> Parser<'source> {
 
     fn class_declaration(&mut self) {
         self.consume(TokenKind::Identifier, "Expect class name.");
-        let Some(name_constant_index) = self.constant_identifier(&self.previous.lexeme) else {
+        let class_name = self.previous.lexeme;
+        let Some(name_constant_index) = self.constant_identifier(class_name) else {
             self.error("No constants defined.");
             return;
         };
@@ -111,7 +110,22 @@ impl<'source> Parser<'source> {
         let class_compiler = Box::new(ClassCompiler::new(current_class_compiler));
         self.class_compiler = Some(class_compiler);
 
-        self.named_variable(&self.previous.lexeme, false);
+        if self.r#match(TokenKind::Less) {
+            self.consume(TokenKind::Identifier, "Expect superclass name.");
+            self.variable(false);
+            if class_name == self.previous.lexeme {
+                self.error("A class can't inherit from itself.");
+            }
+
+            self.begin_scope();
+            self.add_local("super");
+            self.define_variable(0);
+            self.named_variable(class_name, false);
+            self.emit_operation(Operation::Inherit);
+            self.class_compiler.as_mut().unwrap().has_superclass = true;
+        }
+
+        self.named_variable(class_name, false);
         self.consume(TokenKind::LeftBrace, "Expect '{' before class body.");
         while !self.check_current_token(TokenKind::RightBrace)
             && !self.check_current_token(TokenKind::Eof)
@@ -120,6 +134,12 @@ impl<'source> Parser<'source> {
         }
         self.consume(TokenKind::RightBrace, "Expect '}' after class body.");
         self.emit_operation(Operation::Pop);
+        let current_class_compiler = self.class_compiler.take().unwrap();
+        if current_class_compiler.has_superclass {
+            self.end_scope();
+        }
+        self.class_compiler = current_class_compiler.enclosing;
+        //currentClass = currentClass->enclosing;
     }
 
     fn method(&mut self) {
@@ -624,11 +644,15 @@ impl<'source> CompilerContext<'source> {
 
 pub struct ClassCompiler {
     enclosing: Option<Box<ClassCompiler>>,
+    has_superclass: bool,
 }
 
 impl ClassCompiler {
     fn new(enclosing: Option<Box<ClassCompiler>>) -> Self {
-        Self { enclosing }
+        Self {
+            enclosing,
+            has_superclass: false,
+        }
     }
 }
 

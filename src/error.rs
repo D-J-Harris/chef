@@ -1,5 +1,3 @@
-use std::error;
-
 use thiserror::Error;
 
 pub type InterpretResult<T> = std::result::Result<T, RuntimeError>;
@@ -54,6 +52,8 @@ pub enum RuntimeError {
     ConstantClosureNotFound,
     #[error("No class name initialized.")]
     ConstantClassNotFound,
+    #[error("Superclass must be a class.")]
+    ConstantSuperclassNotFound,
     #[error("Expected 0 arguments but got %d.")]
     MissingClassInitMethod,
     #[error("Invalid closure opcodes")]
