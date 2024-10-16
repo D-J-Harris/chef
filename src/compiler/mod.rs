@@ -545,7 +545,7 @@ impl<'source> Compiler<'source> {
     fn end_compiler(&mut self) -> Option<(FunctionObject, [Upvalue; UPVALUES_MAX_COUNT])> {
         self.emit_return();
         #[cfg(feature = "debug_trace")]
-        self.compiler.debug();
+        self.context.debug();
 
         self.context.enclosing.take().map(|parent| {
             let context: CompilerContext<'source> = std::mem::replace(&mut self.context, *parent);
@@ -638,7 +638,7 @@ impl<'source> CompilerContext<'source> {
             true => "<script>".into(),
             false => self.function.name.clone(),
         };
-        self.context.function.chunk.disassemble(&name);
+        self.function.chunk.disassemble(&name);
     }
 }
 

@@ -10,7 +10,7 @@ use crate::objects::{
 };
 use crate::value::Value;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct CallFrame {
     closure: Rc<ClosureObject>,
     slot: usize,
@@ -34,7 +34,6 @@ pub struct Vm {
     stack: [Option<Value>; STACK_VALUES_MAX_COUNT],
     stack_top: usize,
     open_upvalues: Vec<Rc<RefCell<UpvalueObject>>>,
-    /// For Globals
     pub identifiers: HashMap<String, Value>,
 }
 
@@ -68,12 +67,6 @@ impl Vm {
         self.open_upvalues.truncate(0);
     }
 
-    fn read_operation(&mut self) -> InterpretResult<Operation> {
-        let operation = self.current_function().chunk.code[self.current_frame().ip];
-        self.current_frame_mut().ip += 1;
-        Ok(operation)
-    }
-
     pub fn stack_error(&mut self) {
         for frame_index in (0..self.frame_count).rev() {
             let frame = self.frames[frame_index]
@@ -82,18 +75,6 @@ impl Vm {
             frame.runtime_error_print()
         }
         self.reset();
-    }
-
-    fn current_frame(&self) -> &CallFrame {
-        self.frames[self.frame_count - 1]
-            .as_ref()
-            .expect("Could not find stack frame.")
-    }
-
-    fn current_frame_mut(&mut self) -> &mut CallFrame {
-        self.frames[self.frame_count - 1]
-            .as_mut()
-            .expect("Could not find stack frame.")
     }
 
     fn push_frame(&mut self, frame: CallFrame) -> InterpretResult<()> {
@@ -111,13 +92,8 @@ impl Vm {
         frame.expect("No frame to pop from stack.")
     }
 
-    fn current_function(&self) -> Rc<FunctionObject> {
-        Rc::clone(&self.current_frame().closure.function)
-    }
-
-    fn read_constant(&self, index: u8) -> InterpretResult<Value> {
-        Ok(self
-            .current_function()
+    fn read_constant(&self, function: &Rc<FunctionObject>, index: u8) -> InterpretResult<Value> {
+        Ok(function
             .chunk
             .constants
             .get(index as usize)
@@ -163,287 +139,342 @@ impl Vm {
     }
 
     pub fn run(&mut self) -> InterpretResult<()> {
-        loop {
-            let operation = self.read_operation()?;
-            #[cfg(feature = "debug_trace")]
-            self.current_function()
-                .chunk
-                .disassemble_instruction(self.current_frame().ip - 1);
-            match &operation {
-                Operation::Return => {
-                    let frame = self.pop_frame();
-                    let result = self.pop();
-                    self.close_upvalues(frame.slot)?;
-                    if self.frame_count == 0 {
-                        return Ok(());
-                    }
-                    // Unwind the current call frame from the stack.
-                    loop {
-                        drop(self.pop());
-                        if self.stack_top == frame.slot {
-                            break;
+        let mut current_frame = self.pop_frame();
+        let mut current_closure = Rc::clone(&current_frame.closure);
+        let mut current_function = Rc::clone(&current_closure.function);
+
+        let ret: InterpretResult<()> = (|| {
+            loop {
+                let operation = current_function.chunk.code[current_frame.ip];
+                current_frame.ip += 1;
+                #[cfg(feature = "debug_trace")]
+                current_function.chunk.disassemble_instruction(current_frame.ip - 1);
+
+                match &operation {
+                    Operation::Return => {
+                        let result = self.pop();
+                        self.close_upvalues(current_frame.slot)?;
+                        if self.frame_count == 0 {
+                            return Ok(());
                         }
+                        // Unwind the current call frame from the stack.
+                        loop {
+                            drop(self.pop());
+                            if self.stack_top == current_frame.slot {
+                                break;
+                            }
+                        }
+                        if self.frame_count == 0 {
+                            break Ok(());
+                        }
+                        current_frame = self.pop_frame();
+                        current_closure = Rc::clone(&current_frame.closure);
+                        current_function = Rc::clone(&current_closure.function);
+
+                        self.push(result)?
                     }
-                    self.push(result)?
-                }
-                Operation::Constant(index) => {
-                    let value = self.read_constant(*index)?;
-                    self.push(value)?
-                }
-                Operation::Negate => {
-                    let constant = self.peek_mut(self.current_slot())?;
-                    constant.negate()?
-                }
-                Operation::Add => {
-                    let (b, mut a) = (self.pop(), self.pop());
-                    a.add_assign(b)?;
-                    self.push(a)?
-                }
-                Operation::Subtract => {
-                    let (b, mut a) = (self.pop(), self.pop());
-                    a.sub_assign(b)?;
-                    self.push(a)?
-                }
-                Operation::Multiply => {
-                    let (b, mut a) = (self.pop(), self.pop());
-                    a.mul_assign(b)?;
-                    self.push(a)?
-                }
-                Operation::Divide => {
-                    let (b, mut a) = (self.pop(), self.pop());
-                    a.div_assign(b)?;
-                    self.push(a)?
-                }
-                Operation::Nil => self.push(Value::Nil)?,
-                Operation::True => self.push(Value::Boolean(true))?,
-                Operation::False => self.push(Value::Boolean(false))?,
-                Operation::Not => {
-                    let constant = self.pop();
-                    let result = constant.falsey();
-                    self.push(Value::Boolean(result))?
-                }
-                Operation::Equal => {
-                    let (b, a) = (self.pop(), self.pop());
-                    let result = a.is_equal(b);
-                    self.push(Value::Boolean(result))?
-                }
-                Operation::Greater => {
-                    let (b, a) = (self.pop(), self.pop());
-                    let result = a.is_greater(b)?;
-                    self.push(Value::Boolean(result))?
-                }
-                Operation::Less => {
-                    let (b, a) = (self.pop(), self.pop());
-                    let result = a.is_less(b)?;
-                    self.push(Value::Boolean(result))?
-                }
-                Operation::Print => {
-                    let constant = self.pop();
-                    println!("{constant}");
-                }
-                Operation::Pop => drop(self.pop()),
-                Operation::DefineGlobal(index) => {
-                    let Value::String(name) = self.read_constant(*index)? else {
-                        return Err(RuntimeError::ConstantStringNotFound);
-                    };
-                    let constant = self.pop();
-                    self.identifiers.insert(name, constant);
-                }
-                Operation::GetGlobal(index) => {
-                    let Value::String(name) = self.read_constant(*index)? else {
-                        return Err(RuntimeError::ConstantStringNotFound);
-                    };
-                    let constant = self
-                        .identifiers
-                        .get(&name)
-                        .ok_or(RuntimeError::UndefinedVariable(name))?;
-                    self.push(constant.clone())?
-                }
-                Operation::SetGlobal(index) => {
-                    let Value::String(name) = self.read_constant(*index)? else {
-                        return Err(RuntimeError::ConstantStringNotFound);
-                    };
-                    let constant = self.peek(self.current_slot())?;
-                    self.identifiers
-                        .insert(name.clone(), constant.clone())
-                        .ok_or(RuntimeError::UndefinedVariable(name))?;
-                }
-                Operation::GetLocal(frame_slot) => {
-                    let slot = self.current_frame().slot + *frame_slot as usize;
-                    let value = self.peek(slot)?;
-                    self.push(value.clone())?
-                }
-                Operation::SetLocal(frame_slot) => {
-                    let slot = self.current_frame().slot + *frame_slot as usize;
-                    let replacement_value = self.peek(self.current_slot())?;
-                    *self.peek_mut(slot)? = replacement_value.clone();
-                }
-                Operation::JumpIfFalse(jump) => {
-                    let value = self.peek(self.current_slot())?;
-                    if value.falsey() {
-                        self.current_frame_mut().ip += *jump as usize;
+                    Operation::Constant(index) => {
+                        let value = self.read_constant(&current_function, *index)?;
+                        self.push(value)?
                     }
-                }
-                Operation::Jump(jump) => self.current_frame_mut().ip += *jump as usize,
-                Operation::Loop(offset) => self.current_frame_mut().ip -= (*offset + 1) as usize,
-                Operation::Call(argument_count) => self.call_value(*argument_count)?,
-                Operation::Closure(index) => {
-                    let Value::Function(function) = self.read_constant(*index)? else {
-                        return Err(RuntimeError::ConstantFunctionNotFound);
-                    };
-                    let (upvalue_count, function) = (function.upvalue_count, Rc::clone(&function));
-                    let mut closure_object = ClosureObject::new(upvalue_count, function);
-                    for i in 0..upvalue_count {
-                        let Operation::ClosureIsLocalByte(is_local) = self.read_operation()? else {
-                            return Err(RuntimeError::ClosureOpcode);
+                    Operation::Negate => {
+                        let constant = self.peek_mut(self.current_slot())?;
+                        constant.negate()?
+                    }
+                    Operation::Add => {
+                        let (b, mut a) = (self.pop(), self.pop());
+                        a.add_assign(b)?;
+                        self.push(a)?
+                    }
+                    Operation::Subtract => {
+                        let (b, mut a) = (self.pop(), self.pop());
+                        a.sub_assign(b)?;
+                        self.push(a)?
+                    }
+                    Operation::Multiply => {
+                        let (b, mut a) = (self.pop(), self.pop());
+                        a.mul_assign(b)?;
+                        self.push(a)?
+                    }
+                    Operation::Divide => {
+                        let (b, mut a) = (self.pop(), self.pop());
+                        a.div_assign(b)?;
+                        self.push(a)?
+                    }
+                    Operation::Nil => self.push(Value::Nil)?,
+                    Operation::True => self.push(Value::Boolean(true))?,
+                    Operation::False => self.push(Value::Boolean(false))?,
+                    Operation::Not => {
+                        let constant = self.pop();
+                        let result = constant.falsey();
+                        self.push(Value::Boolean(result))?
+                    }
+                    Operation::Equal => {
+                        let (b, a) = (self.pop(), self.pop());
+                        let result = a.is_equal(b);
+                        self.push(Value::Boolean(result))?
+                    }
+                    Operation::Greater => {
+                        let (b, a) = (self.pop(), self.pop());
+                        let result = a.is_greater(b)?;
+                        self.push(Value::Boolean(result))?
+                    }
+                    Operation::Less => {
+                        let (b, a) = (self.pop(), self.pop());
+                        let result = a.is_less(b)?;
+                        self.push(Value::Boolean(result))?
+                    }
+                    Operation::Print => {
+                        let constant = self.pop();
+                        println!("{constant}");
+                    }
+                    Operation::Pop => drop(self.pop()),
+                    Operation::DefineGlobal(index) => {
+                        let Value::String(name) = self.read_constant(&current_function, *index)?
+                        else {
+                            return Err(RuntimeError::ConstantStringNotFound);
                         };
-                        let Operation::ClosureIndexByte(index) = self.read_operation()? else {
-                            return Err(RuntimeError::ClosureOpcode);
-                        };
-                        let upvalue = if is_local {
-                            let upvalue_slot = self.current_frame().slot + index as usize;
-                            self.capture_upvalue(upvalue_slot)
-                        } else {
-                            Rc::clone(
-                                self.current_frame().closure.upvalues[index as usize]
-                                    .as_ref()
-                                    .unwrap(),
-                            )
-                        };
-                        closure_object.upvalues[i].replace(upvalue);
+                        let constant = self.pop();
+                        self.identifiers.insert(name, constant);
                     }
-                    self.push(Value::Closure(Rc::new(closure_object)))?
-                }
-                Operation::GetUpvalue(upvalue_slot) => {
-                    let slot = *upvalue_slot as usize;
-                    let Some(upvalue) = &self.current_frame().closure.upvalues[slot] else {
-                        return Err(RuntimeError::OutOfBounds);
-                    };
-                    let value = match &*upvalue.borrow() {
-                        UpvalueObject::Open(value_slot) => {
-                            let value = self.stack[*value_slot].as_ref().unwrap();
-                            value.clone()
+                    Operation::GetGlobal(index) => {
+                        let Value::String(name) = self.read_constant(&current_function, *index)?
+                        else {
+                            return Err(RuntimeError::ConstantStringNotFound);
+                        };
+                        let constant = self
+                            .identifiers
+                            .get(&name)
+                            .ok_or(RuntimeError::UndefinedVariable(name))?;
+                        self.push(constant.clone())?
+                    }
+                    Operation::SetGlobal(index) => {
+                        let Value::String(name) = self.read_constant(&current_function, *index)?
+                        else {
+                            return Err(RuntimeError::ConstantStringNotFound);
+                        };
+                        let constant = self.peek(self.current_slot())?;
+                        self.identifiers
+                            .insert(name.clone(), constant.clone())
+                            .ok_or(RuntimeError::UndefinedVariable(name))?;
+                    }
+                    Operation::GetLocal(frame_index) => {
+                        let slot = current_frame.slot + *frame_index as usize;
+                        let value = self.peek(slot)?;
+                        self.push(value.clone())?
+                    }
+                    Operation::SetLocal(frame_index) => {
+                        let slot = current_frame.slot + *frame_index as usize;
+                        let replacement_value = self.peek(self.current_slot())?;
+                        *self.peek_mut(slot)? = replacement_value.clone();
+                    }
+                    Operation::JumpIfFalse(jump) => {
+                        let value = self.peek(self.current_slot())?;
+                        if value.falsey() {
+                            current_frame.ip += *jump as usize;
                         }
-                        UpvalueObject::Closed(value) => value.clone(),
-                    };
-                    self.push(value)?
-                }
-                Operation::SetUpvalue(upvalue_slot) => {
-                    let slot = *upvalue_slot as usize;
-                    let replacement_value = self.peek(self.current_slot())?.clone();
-                    let Some(ref upvalue) = self.current_frame().closure.upvalues[slot] else {
-                        return Err(RuntimeError::OutOfBounds);
-                    };
-                    let slot = *match &mut *upvalue.borrow_mut() {
-                        UpvalueObject::Open(value_slot) => value_slot,
-                        UpvalueObject::Closed(value) => {
-                            *value = replacement_value;
-                            continue;
+                    }
+                    Operation::Jump(jump) => current_frame.ip += *jump as usize,
+                    Operation::Loop(offset) => current_frame.ip -= (*offset + 1) as usize,
+                    Operation::Call(argument_count) => {
+                        if let Some(new_frame) = self.call_value(*argument_count)? {
+                            self.push_frame(current_frame.clone())?;
+                            current_frame = new_frame;
+                            current_closure = Rc::clone(&current_frame.closure);
+                            current_function = Rc::clone(&current_closure.function);
                         }
-                    };
-                    self.stack[slot] = Some(replacement_value)
-                }
-                Operation::CloseUpvalue => {
-                    self.close_upvalues(self.current_slot())?;
-                    self.pop();
-                }
-                Operation::ClosureIsLocalByte(_) => unreachable!(),
-                Operation::ClosureIndexByte(_) => unreachable!(),
-                Operation::Class(index) => {
-                    let Value::String(name) = self.read_constant(*index)? else {
-                        return Err(RuntimeError::ConstantClassNotFound);
-                    };
-                    let class = Rc::new(RefCell::new(ClassObject::new(&name)));
-                    self.push(Value::Class(class))?
-                }
-                Operation::GetProperty(index) => {
-                    let Value::Instance(instance) = self.peek(self.current_slot())? else {
-                        return Err(RuntimeError::InstanceGetProperty);
-                    };
-                    let Value::String(name) = self.read_constant(*index)? else {
-                        return Err(RuntimeError::ConstantStringNotFound);
-                    };
-                    let instance = Rc::clone(instance);
-                    match instance.borrow().fields.get(&name) {
-                        Some(value) => {
-                            let value = value.try_into()?;
-                            self.pop();
-                            self.push(value)?;
-                            continue;
+                    }
+                    Operation::Closure(index) => {
+                        let Value::Function(function) =
+                            self.read_constant(&current_function, *index)?
+                        else {
+                            return Err(RuntimeError::ConstantFunctionNotFound);
+                        };
+                        let (upvalue_count, function) =
+                            (function.upvalue_count, Rc::clone(&function));
+                        let mut closure_object =
+                            ClosureObject::new(upvalue_count, Rc::clone(&function));
+                        for i in 0..upvalue_count {
+                            let Operation::ClosureIsLocalByte(is_local) =
+                                current_function.chunk.code[current_frame.ip]
+                            else {
+                                return Err(RuntimeError::ClosureOpcode);
+                            };
+                            current_frame.ip += 1;
+                            let Operation::ClosureIndexByte(index) =
+                                current_function.chunk.code[current_frame.ip]
+                            else {
+                                return Err(RuntimeError::ClosureOpcode);
+                            };
+                            current_frame.ip += 1;
+                            let upvalue = if is_local {
+                                let upvalue_slot = current_frame.slot + index as usize;
+                                self.capture_upvalue(upvalue_slot)
+                            } else {
+                                Rc::clone(
+                                    current_closure.upvalues[index as usize].as_ref().unwrap(),
+                                )
+                            };
+                            closure_object.upvalues[i].replace(upvalue);
                         }
-                        None => {
-                            let instance = Rc::clone(&instance);
-                            let class = &instance.borrow().class;
-                            self.bind_method(name, class)?;
-                        }
-                    };
-                }
-                Operation::SetProperty(index) => {
-                    let Value::Instance(instance) = self.peek(self.current_slot() - 1)? else {
-                        return Err(RuntimeError::InstanceSetProperty);
-                    };
-                    let instance = Rc::clone(instance);
-                    let Value::String(name) = self.read_constant(*index)? else {
-                        return Err(RuntimeError::ConstantStringNotFound);
-                    };
-                    let value = self.pop();
-                    instance
-                        .borrow_mut()
-                        .fields
-                        .insert(name, value.clone().into());
-                    self.pop();
-                    self.push(value)?
-                }
-                Operation::Method(index) => {
-                    let Value::String(name) = self.read_constant(*index)? else {
-                        return Err(RuntimeError::ConstantStringNotFound);
-                    };
-                    self.define_method(name)?;
-                }
-                Operation::Invoke(index, argument_count) => {
-                    let Value::String(method) = self.read_constant(*index)? else {
-                        return Err(RuntimeError::ConstantStringNotFound);
-                    };
-                    self.invoke(&method, *argument_count)?;
-                }
-                Operation::Inherit => {
-                    let Value::Class(superclass) = self.peek(self.current_slot() - 1)? else {
-                        return Err(RuntimeError::ConstantSuperclassNotFound);
-                    };
-                    let Value::Class(subclass) = self.peek(self.current_slot())? else {
-                        return Err(RuntimeError::ConstantClassNotFound);
-                    };
-                    for (name, method) in superclass.borrow().methods.iter() {
-                        subclass
+                        self.push(Value::Closure(Rc::new(closure_object)))?
+                    }
+                    Operation::GetUpvalue(upvalue_slot) => {
+                        let slot = *upvalue_slot as usize;
+                        let Some(upvalue) = &current_closure.upvalues[slot] else {
+                            return Err(RuntimeError::OutOfBounds);
+                        };
+                        let value = match &*upvalue.borrow() {
+                            UpvalueObject::Open(value_slot) => {
+                                let value = self.stack[*value_slot].as_ref().unwrap();
+                                value.clone()
+                            }
+                            UpvalueObject::Closed(value) => value.clone(),
+                        };
+                        self.push(value)?
+                    }
+                    Operation::SetUpvalue(upvalue_slot) => {
+                        let slot = *upvalue_slot as usize;
+                        let replacement_value = self.peek(self.current_slot())?.clone();
+                        let Some(ref upvalue) = current_closure.upvalues[slot] else {
+                            return Err(RuntimeError::OutOfBounds);
+                        };
+                        let slot = *match &mut *upvalue.borrow_mut() {
+                            UpvalueObject::Open(value_slot) => value_slot,
+                            UpvalueObject::Closed(value) => {
+                                *value = replacement_value;
+                                continue;
+                            }
+                        };
+                        self.stack[slot] = Some(replacement_value)
+                    }
+                    Operation::CloseUpvalue => {
+                        self.close_upvalues(self.current_slot())?;
+                        self.pop();
+                    }
+                    Operation::ClosureIsLocalByte(_) => unreachable!(),
+                    Operation::ClosureIndexByte(_) => unreachable!(),
+                    Operation::Class(index) => {
+                        let Value::String(name) = self.read_constant(&current_function, *index)?
+                        else {
+                            return Err(RuntimeError::ConstantClassNotFound);
+                        };
+                        let class = Rc::new(RefCell::new(ClassObject::new(&name)));
+                        self.push(Value::Class(class))?
+                    }
+                    Operation::GetProperty(index) => {
+                        let Value::Instance(instance) = self.peek(self.current_slot())? else {
+                            return Err(RuntimeError::InstanceGetProperty);
+                        };
+                        let Value::String(name) = self.read_constant(&current_function, *index)?
+                        else {
+                            return Err(RuntimeError::ConstantStringNotFound);
+                        };
+                        let instance = Rc::clone(instance);
+                        match instance.borrow().fields.get(&name) {
+                            Some(value) => {
+                                let value = value.try_into()?;
+                                self.pop();
+                                self.push(value)?;
+                                continue;
+                            }
+                            None => {
+                                let instance = Rc::clone(&instance);
+                                let class = &instance.borrow().class;
+                                self.bind_method(name, class)?;
+                            }
+                        };
+                    }
+                    Operation::SetProperty(index) => {
+                        let Value::Instance(instance) = self.peek(self.current_slot() - 1)? else {
+                            return Err(RuntimeError::InstanceSetProperty);
+                        };
+                        let instance = Rc::clone(instance);
+                        let Value::String(name) = self.read_constant(&current_function, *index)?
+                        else {
+                            return Err(RuntimeError::ConstantStringNotFound);
+                        };
+                        let value = self.pop();
+                        instance
                             .borrow_mut()
-                            .methods
-                            .insert(name.clone(), Rc::clone(method));
+                            .fields
+                            .insert(name, value.clone().into());
+                        self.pop();
+                        self.push(value)?
                     }
-                    self.pop();
-                }
-                Operation::GetSuper(index) => {
-                    let Value::String(method) = self.read_constant(*index)? else {
-                        return Err(RuntimeError::ConstantStringNotFound);
-                    };
-                    let Value::Class(superclass) = self.pop() else {
-                        return Err(RuntimeError::ConstantSuperclassNotFound);
-                    };
-                    self.bind_method(method, superclass.as_ref())?;
-                }
-                Operation::SuperInvoke(index, argument_count) => {
-                    let Value::String(method) = self.read_constant(*index)? else {
-                        return Err(RuntimeError::ConstantStringNotFound);
-                    };
-                    let Value::Class(superclass) = self.pop() else {
-                        return Err(RuntimeError::ConstantSuperclassNotFound);
-                    };
-                    self.invoke_from_class(&superclass, &method, *argument_count)?;
+                    Operation::Method(index) => {
+                        let Value::String(name) = self.read_constant(&current_function, *index)?
+                        else {
+                            return Err(RuntimeError::ConstantStringNotFound);
+                        };
+                        self.define_method(name)?;
+                    }
+                    Operation::Invoke(index, argument_count) => {
+                        let Value::String(method) =
+                            self.read_constant(&current_function, *index)?
+                        else {
+                            return Err(RuntimeError::ConstantStringNotFound);
+                        };
+                        if let Some(new_frame) = self.invoke(&method, *argument_count)? {
+                            self.push_frame(current_frame.clone())?;
+                            current_frame = new_frame;
+                            current_closure = Rc::clone(&current_frame.closure);
+                            current_function = Rc::clone(&current_closure.function);
+                        }
+                    }
+                    Operation::Inherit => {
+                        let Value::Class(superclass) = self.peek(self.current_slot() - 1)? else {
+                            return Err(RuntimeError::ConstantSuperclassNotFound);
+                        };
+                        let Value::Class(subclass) = self.peek(self.current_slot())? else {
+                            return Err(RuntimeError::ConstantClassNotFound);
+                        };
+                        for (name, method) in superclass.borrow().methods.iter() {
+                            subclass
+                                .borrow_mut()
+                                .methods
+                                .insert(name.clone(), Rc::clone(method));
+                        }
+                        self.pop();
+                    }
+                    Operation::GetSuper(index) => {
+                        let Value::String(method) =
+                            self.read_constant(&current_function, *index)?
+                        else {
+                            return Err(RuntimeError::ConstantStringNotFound);
+                        };
+                        let Value::Class(superclass) = self.pop() else {
+                            return Err(RuntimeError::ConstantSuperclassNotFound);
+                        };
+                        self.bind_method(method, superclass.as_ref())?;
+                    }
+                    Operation::SuperInvoke(index, argument_count) => {
+                        let Value::String(method) =
+                            self.read_constant(&current_function, *index)?
+                        else {
+                            return Err(RuntimeError::ConstantStringNotFound);
+                        };
+                        let Value::Class(superclass) = self.pop() else {
+                            return Err(RuntimeError::ConstantSuperclassNotFound);
+                        };
+                        let new_frame =
+                            self.invoke_from_class(&superclass, &method, *argument_count)?;
+
+                        self.push_frame(current_frame.clone())?;
+                        current_frame = new_frame;
+                        current_closure = Rc::clone(&current_frame.closure);
+                        current_function = Rc::clone(&current_closure.function);
+                    }
                 }
             }
-        }
+        })();
+        // final frame push to make sure stack trace print works, before propagating error
+        self.push_frame(current_frame.clone())?;
+        ret?;
+        Ok(())
     }
 
-    fn invoke(&mut self, method: &str, argument_count: u8) -> InterpretResult<()> {
+    fn invoke(&mut self, method: &str, argument_count: u8) -> InterpretResult<Option<CallFrame>> {
         let Value::Instance(receiver) = self.peek(self.current_slot() - argument_count as usize)?
         else {
             return Err(RuntimeError::InstanceInvoke);
@@ -453,7 +484,9 @@ impl Vm {
             self.stack[self.current_slot() - argument_count as usize] = Some(value);
             return self.call_value(argument_count);
         }
-        self.invoke_from_class(&Rc::clone(receiver).borrow().class, method, argument_count)
+        let call_frame =
+            self.invoke_from_class(&Rc::clone(receiver).borrow().class, method, argument_count)?;
+        Ok(Some(call_frame))
     }
 
     fn invoke_from_class(
@@ -461,13 +494,14 @@ impl Vm {
         class: &Rc<RefCell<ClassObject>>,
         name: &str,
         argument_count: u8,
-    ) -> InterpretResult<()> {
+    ) -> InterpretResult<CallFrame> {
         let class_borrow = class.borrow();
         let method = class_borrow
             .methods
             .get(name)
             .ok_or(RuntimeError::UndefinedProperty(name.into()))?;
-        self.call(Rc::clone(method), argument_count)
+        let call_frame = self.call(Rc::clone(method), argument_count)?;
+        Ok(call_frame)
     }
 
     fn define_method(&mut self, name: String) -> InterpretResult<()> {
@@ -522,7 +556,7 @@ impl Vm {
         upvalue
     }
 
-    fn call_value(&mut self, argument_count: u8) -> InterpretResult<()> {
+    fn call_value(&mut self, argument_count: u8) -> InterpretResult<Option<CallFrame>> {
         let callee = self
             .peek(self.current_slot() - argument_count as usize)?
             .clone();
@@ -532,11 +566,11 @@ impl Vm {
                     (function.function)(argument_count, self.stack_top - argument_count as usize);
                 self.stack_top -= argument_count as usize + 1;
                 self.push(result)?;
-                Ok(())
+                Ok(None)
             }
             Value::Closure(closure) => {
-                self.call(Rc::clone(&closure), argument_count)?;
-                Ok(())
+                let call_frame = self.call(Rc::clone(&closure), argument_count)?;
+                Ok(Some(call_frame))
             }
             Value::Class(class) => {
                 let instance = Value::Instance(Rc::new(RefCell::new(InstanceObject::new(
@@ -544,34 +578,40 @@ impl Vm {
                 ))));
                 self.stack[self.current_slot() - argument_count as usize].replace(instance);
                 if let Some(closure) = class.borrow().methods.get(INIT_STRING) {
-                    self.call(Rc::clone(closure), argument_count)?;
+                    let call_frame = self.call(Rc::clone(closure), argument_count)?;
+                    Ok(Some(call_frame))
                 } else if argument_count != 0 {
-                    return Err(RuntimeError::ClassArguments(argument_count));
+                    Err(RuntimeError::ClassArguments(argument_count))
+                } else {
+                    Ok(None)
                 }
-                Ok(())
             }
             Value::BoundMethod(bound_method) => {
                 let closure = bound_method.closure;
                 self.stack[self.current_slot() - argument_count as usize] =
                     Some(Value::Instance(Rc::clone(&bound_method.receiver)));
-                self.call(closure, argument_count)?;
-                Ok(())
+                let call_frame = self.call(closure, argument_count)?;
+                Ok(Some(call_frame))
             }
             _ => Err(RuntimeError::InvalidCallee),
         }
     }
 
-    fn call(&mut self, closure: Rc<ClosureObject>, argument_count: u8) -> InterpretResult<()> {
+    fn call(
+        &mut self,
+        closure: Rc<ClosureObject>,
+        argument_count: u8,
+    ) -> InterpretResult<CallFrame> {
         let function = &closure.function;
         if function.arity != argument_count {
             return Err(RuntimeError::FunctionArity(function.arity, argument_count));
         }
-        self.push_frame(CallFrame {
+        let frame = CallFrame {
             slot: self.stack_top - (argument_count as usize + 1),
             closure,
             ip: 0,
-        })?;
-        Ok(())
+        };
+        Ok(frame)
     }
 
     fn bind_method(&mut self, name: String, class: &RefCell<ClassObject>) -> InterpretResult<()> {
@@ -595,8 +635,10 @@ impl Vm {
             function.upvalue_count,
             Rc::clone(&function),
         ));
-        self.call(closure, 0)
+        let initial_call_frame = self
+            .call(closure, 0)
             .expect("Failed to call top-level script.");
+        self.push_frame(initial_call_frame)?;
         let result = self.run();
         if let Err(err) = &result {
             eprintln!("{err}");
