@@ -1,7 +1,12 @@
-class Node {}
-{
-    var n1 = Node();
-    var n2 = Node();
-    n1.inner = n2;
-    n2.inner = n1;
+fun makeClosure(value) {
+  fun closure() {
+    print value;
+  }
+  return closure;
 }
+
+var doughnut = makeClosure("doughnut");
+var bagel = makeClosure("bagel");
+doughnut();
+bagel();
+print doughnut == bagel;

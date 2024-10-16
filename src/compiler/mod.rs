@@ -1,7 +1,10 @@
 use std::rc::Rc;
 use std::u8;
 
-use crate::common::U8_MAX;
+use crate::common::{
+    FUNCTION_ARITY_MAX_COUNT, JUMP_MAX_COUNT, JUMP_MAX_COUNT_USIZE, LOCALS_MAX_COUNT, SUPER_STRING,
+    UPVALUES_MAX_COUNT,
+};
 use crate::objects::{FunctionKind, FunctionObject};
 use crate::scanner::token::Token;
 use crate::value::Value;
@@ -118,7 +121,7 @@ impl<'source> Parser<'source> {
             }
 
             self.begin_scope();
-            self.add_local("super");
+            self.add_local(SUPER_STRING);
             self.define_variable(0);
             self.named_variable(class_name, false);
             self.emit_operation(Operation::Inherit);
@@ -182,7 +185,7 @@ impl<'source> Parser<'source> {
         if !self.check_current_token(TokenKind::RightParen) {
             loop {
                 let current_arity = &mut self.compiler.context.function.arity;
-                if *current_arity == u8::MAX {
+                if *current_arity == FUNCTION_ARITY_MAX_COUNT {
                     self.error_at_current("Can't have more than 255 parameters.");
                     return;
                 }
@@ -213,7 +216,7 @@ impl<'source> Parser<'source> {
             .current_chunk_mut()
             .add_constant(Value::Function(Rc::new(function)))
         else {
-            self.error("Reached constant limit before adding function.");
+            self.error("Too many constants in one chunk.");
             return;
         };
         self.emit_operation(Operation::Closure(constant_index));
@@ -275,9 +278,15 @@ impl<'source> Parser<'source> {
     }
 
     fn add_local(&mut self, name: &'source str) {
+        let locals_count = &mut self.compiler.context.locals_count;
+        if *locals_count == LOCALS_MAX_COUNT {
+            self.error("Too many local variables in function.");
+            return;
+        }
+
         // "Declare" depth with None, it will later be initialized when variable defined
-        self.compiler.context.locals[self.compiler.context.locals_count].name = name;
-        self.compiler.context.locals_count += 1;
+        self.compiler.context.locals[*locals_count].name = name;
+        *locals_count += 1;
     }
 
     fn constant_identifier(&mut self, token_name: &str) -> Option<u8> {
@@ -365,11 +374,11 @@ impl<'source> Parser<'source> {
         self.expression();
         self.consume(TokenKind::RightParen, "Expect ')' after condition.");
 
-        self.emit_operation(Operation::JumpIfFalse(u8::MAX));
+        self.emit_operation(Operation::JumpIfFalse(JUMP_MAX_COUNT));
         let num_operations_if = self.current_chunk().code.len();
         self.emit_operation(Operation::Pop);
         self.statement();
-        self.emit_operation(Operation::Jump(u8::MAX));
+        self.emit_operation(Operation::Jump(JUMP_MAX_COUNT));
         let num_operations_else = self.current_chunk().code.len();
         self.patch_jump(num_operations_if);
         self.emit_operation(Operation::Pop);
@@ -399,8 +408,8 @@ impl<'source> Parser<'source> {
 
     fn patch_jump(&mut self, num_operations_before: usize) {
         let num_operations_after = self.current_chunk().code.len();
-        if num_operations_after - num_operations_before > U8_MAX {
-            self.error("Too much code to jump over.");
+        if num_operations_after - num_operations_before > JUMP_MAX_COUNT_USIZE {
+            self.error("Loop body too large.");
             return;
         }
         match self
@@ -424,7 +433,7 @@ impl<'source> Parser<'source> {
         self.expression();
         self.consume(TokenKind::RightParen, "Expect ')' after condition.");
 
-        self.emit_operation(Operation::JumpIfFalse(u8::MAX));
+        self.emit_operation(Operation::JumpIfFalse(JUMP_MAX_COUNT));
         let num_operations_exit = self.current_chunk().code.len();
         self.emit_operation(Operation::Pop);
         self.statement();
@@ -452,14 +461,14 @@ impl<'source> Parser<'source> {
             self.expression();
             self.consume(TokenKind::Semicolon, "Expect ';' after loop condition.");
             // Jump out of the loop if the condition is false.
-            self.emit_operation(Operation::JumpIfFalse(u8::MAX));
+            self.emit_operation(Operation::JumpIfFalse(JUMP_MAX_COUNT));
             num_operations_exit = Some(self.current_chunk().code.len());
             self.emit_operation(Operation::Pop);
         }
 
         // Incremenet clause.
         if !self.r#match(TokenKind::RightParen) {
-            self.emit_operation(Operation::Jump(u8::MAX));
+            self.emit_operation(Operation::Jump(JUMP_MAX_COUNT));
             let num_operations_jump = self.current_chunk().code.len();
             let num_operations_increment_start = self.current_chunk().code.len();
             self.expression();
@@ -483,8 +492,8 @@ impl<'source> Parser<'source> {
 
     fn emit_loop(&mut self, num_operations_loop_start: usize) {
         let offset = self.current_chunk().code.len() - num_operations_loop_start;
-        if offset > U8_MAX {
-            self.error("Too much code to jump over.");
+        if offset > JUMP_MAX_COUNT_USIZE {
+            self.error("Loop body too large.");
             return;
         }
         self.emit_operation(Operation::Loop(offset as u8));
@@ -523,6 +532,8 @@ impl<'source> Parser<'source> {
     fn emit_constant(&mut self, value: Value) {
         if let Some(constant_index) = self.current_chunk_mut().add_constant(value) {
             self.emit_operation(Operation::Constant(constant_index));
+        } else {
+            self.error("Too many constants in one chunk.");
         }
     }
 
@@ -550,7 +561,7 @@ impl<'source> Parser<'source> {
         self.had_error = true;
     }
 
-    fn end_compiler(&mut self) -> Option<(FunctionObject, [Upvalue; U8_MAX])> {
+    fn end_compiler(&mut self) -> Option<(FunctionObject, [Upvalue; UPVALUES_MAX_COUNT])> {
         self.emit_return();
         #[cfg(feature = "debug_print_code")]
         self.compiler.debug();
@@ -617,9 +628,9 @@ struct CompilerContext<'source> {
     pub enclosing: Option<Box<CompilerContext<'source>>>,
     function: FunctionObject,
     scope_depth: u8,
-    locals: [Local<'source>; U8_MAX],
+    locals: [Local<'source>; LOCALS_MAX_COUNT],
     locals_count: usize,
-    pub upvalues: [Upvalue; U8_MAX],
+    pub upvalues: [Upvalue; UPVALUES_MAX_COUNT],
 }
 
 impl<'source> CompilerContext<'source> {

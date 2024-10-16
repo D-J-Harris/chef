@@ -3,17 +3,13 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::chunk::Operation;
-use crate::common::U8_MAX;
+use crate::common::{FRAMES_MAX_COUNT, INIT_STRING, STACK_VALUES_MAX_COUNT};
 use crate::compiler::Parser;
 use crate::error::{InterpretResult, RuntimeError};
 use crate::objects::{
     BoundMethod, ClassObject, ClosureObject, FunctionObject, InstanceObject, UpvalueObject,
 };
 use crate::value::Value;
-
-const FRAMES_MAX: usize = 64;
-const STACK_MAX: usize = U8_MAX;
-const INIT_STRING: &str = "init";
 
 #[derive(Debug)]
 struct CallFrame {
@@ -24,12 +20,8 @@ struct CallFrame {
 
 impl CallFrame {
     fn runtime_error_print(&self) {
-        let function = self
-            .closure
-            .function
-            .upgrade()
-            .expect("No current function to inspect for runtime error.");
-        let line = function.chunk.lines[self.ip];
+        let function = &self.closure.function;
+        let line = function.chunk.lines[self.ip - 1];
         match function.name.is_empty() {
             true => eprintln!("[line {line}] in script"),
             false => eprintln!("[line {line}] in {}", function.name),
@@ -38,9 +30,9 @@ impl CallFrame {
 }
 
 pub struct Vm {
-    frames: [Option<CallFrame>; FRAMES_MAX],
+    frames: [Option<CallFrame>; FRAMES_MAX_COUNT],
     frame_count: usize,
-    stack: [Option<Value>; FRAMES_MAX * STACK_MAX],
+    stack: [Option<Value>; STACK_VALUES_MAX_COUNT],
     stack_top: usize,
     open_upvalues: Vec<Rc<RefCell<UpvalueObject>>>,
     /// For Globals
@@ -52,8 +44,8 @@ const STACK_DEFAULT_VALUE: Option<Value> = None;
 impl Vm {
     pub fn new() -> Self {
         let mut vm = Self {
-            frames: [FRAME_DEFAULT_VALUE; FRAMES_MAX],
-            stack: [STACK_DEFAULT_VALUE; FRAMES_MAX * STACK_MAX],
+            frames: [FRAME_DEFAULT_VALUE; FRAMES_MAX_COUNT],
+            stack: [STACK_DEFAULT_VALUE; STACK_VALUES_MAX_COUNT],
             stack_top: 0,
             frame_count: 0,
             open_upvalues: Vec::new(),
@@ -67,18 +59,18 @@ impl Vm {
         self.stack_top = 0;
         drop(std::mem::replace(
             &mut self.stack,
-            [STACK_DEFAULT_VALUE; FRAMES_MAX * STACK_MAX],
+            [STACK_DEFAULT_VALUE; STACK_VALUES_MAX_COUNT],
         ));
         self.frame_count = 0;
         drop(std::mem::replace(
             &mut self.frames,
-            [FRAME_DEFAULT_VALUE; FRAMES_MAX],
+            [FRAME_DEFAULT_VALUE; FRAMES_MAX_COUNT],
         ));
         self.open_upvalues.truncate(0);
     }
 
     fn read_operation(&mut self) -> InterpretResult<Operation> {
-        let operation = self.current_function()?.chunk.code[self.current_frame().ip];
+        let operation = self.current_function().chunk.code[self.current_frame().ip];
         self.current_frame_mut().ip += 1;
         Ok(operation)
     }
@@ -106,11 +98,11 @@ impl Vm {
     }
 
     fn push_frame(&mut self, frame: CallFrame) -> InterpretResult<()> {
-        self.frames[self.frame_count] = Some(frame);
-        self.frame_count += 1;
-        if self.frame_count == FRAMES_MAX {
+        if self.frame_count + 1 == FRAMES_MAX_COUNT {
             return Err(RuntimeError::StackOverflow);
         }
+        self.frames[self.frame_count] = Some(frame);
+        self.frame_count += 1;
         Ok(())
     }
 
@@ -120,18 +112,13 @@ impl Vm {
         frame.expect("No frame to pop from stack.")
     }
 
-    fn current_function(&self) -> InterpretResult<Rc<FunctionObject>> {
-        Ok(self
-            .current_frame()
-            .closure
-            .function
-            .upgrade()
-            .ok_or(RuntimeError::ClosureGetFunction)?)
+    fn current_function(&self) -> Rc<FunctionObject> {
+        Rc::clone(&self.current_frame().closure.function)
     }
 
     fn read_constant(&self, index: u8) -> InterpretResult<Value> {
         Ok(self
-            .current_function()?
+            .current_function()
             .chunk
             .constants
             .get(index as usize)
@@ -141,9 +128,13 @@ impl Vm {
             .clone())
     }
 
-    fn push(&mut self, value: Value) {
+    fn push(&mut self, value: Value) -> InterpretResult<()> {
+        if self.stack_top == STACK_VALUES_MAX_COUNT {
+            return Err(RuntimeError::StackOverflow);
+        }
         self.stack[self.stack_top] = Some(value);
         self.stack_top += 1;
+        Ok(())
     }
 
     fn pop(&mut self) -> Value {
@@ -181,7 +172,6 @@ impl Vm {
             let operation = self.read_operation()?;
             #[cfg(feature = "debug_trace_execution")]
             self.current_function()
-                .unwrap()
                 .chunk
                 .disassemble_instruction(self.current_frame().ip - 1);
             match &operation {
@@ -199,11 +189,11 @@ impl Vm {
                             break;
                         }
                     }
-                    self.push(result);
+                    self.push(result)?
                 }
                 Operation::Constant(index) => {
                     let value = self.read_constant(*index)?;
-                    self.push(value);
+                    self.push(value)?
                 }
                 Operation::Negate => {
                     let constant = self.peek_mut(self.current_slot())?;
@@ -212,45 +202,45 @@ impl Vm {
                 Operation::Add => {
                     let (b, mut a) = (self.pop(), self.pop());
                     a.add_assign(b)?;
-                    self.push(a);
+                    self.push(a)?
                 }
                 Operation::Subtract => {
                     let (b, mut a) = (self.pop(), self.pop());
                     a.sub_assign(b)?;
-                    self.push(a);
+                    self.push(a)?
                 }
                 Operation::Multiply => {
                     let (b, mut a) = (self.pop(), self.pop());
                     a.mul_assign(b)?;
-                    self.push(a);
+                    self.push(a)?
                 }
                 Operation::Divide => {
                     let (b, mut a) = (self.pop(), self.pop());
                     a.div_assign(b)?;
-                    self.push(a);
+                    self.push(a)?
                 }
-                Operation::Nil => self.push(Value::Nil),
-                Operation::True => self.push(Value::Boolean(true)),
-                Operation::False => self.push(Value::Boolean(false)),
+                Operation::Nil => self.push(Value::Nil)?,
+                Operation::True => self.push(Value::Boolean(true))?,
+                Operation::False => self.push(Value::Boolean(false))?,
                 Operation::Not => {
                     let constant = self.pop();
-                    let result = constant.falsey()?;
-                    self.push(Value::Boolean(result))
+                    let result = constant.falsey();
+                    self.push(Value::Boolean(result))?
                 }
                 Operation::Equal => {
                     let (b, a) = (self.pop(), self.pop());
                     let result = a.is_equal(b);
-                    self.push(Value::Boolean(result))
+                    self.push(Value::Boolean(result))?
                 }
                 Operation::Greater => {
                     let (b, a) = (self.pop(), self.pop());
                     let result = a.is_greater(b)?;
-                    self.push(Value::Boolean(result));
+                    self.push(Value::Boolean(result))?
                 }
                 Operation::Less => {
                     let (b, a) = (self.pop(), self.pop());
                     let result = a.is_less(b)?;
-                    self.push(Value::Boolean(result));
+                    self.push(Value::Boolean(result))?
                 }
                 Operation::Print => {
                     let constant = self.pop();
@@ -272,7 +262,7 @@ impl Vm {
                         .identifiers
                         .get(&name)
                         .ok_or(RuntimeError::UndefinedVariable(name))?;
-                    self.push(constant.clone());
+                    self.push(constant.clone())?
                 }
                 Operation::SetGlobal(index) => {
                     let Value::String(name) = self.read_constant(*index)? else {
@@ -286,7 +276,7 @@ impl Vm {
                 Operation::GetLocal(frame_slot) => {
                     let slot = self.current_frame().slot + *frame_slot as usize;
                     let value = self.peek(slot)?;
-                    self.push(value.clone());
+                    self.push(value.clone())?
                 }
                 Operation::SetLocal(frame_slot) => {
                     let slot = self.current_frame().slot + *frame_slot as usize;
@@ -295,7 +285,7 @@ impl Vm {
                 }
                 Operation::JumpIfFalse(jump) => {
                     let value = self.peek(self.current_slot())?;
-                    if value.falsey()? {
+                    if value.falsey() {
                         self.current_frame_mut().ip += *jump as usize;
                     }
                 }
@@ -306,36 +296,29 @@ impl Vm {
                     let Value::Function(function) = self.read_constant(*index)? else {
                         return Err(RuntimeError::ConstantFunctionNotFound);
                     };
-                    let (f_name, f_upvalue_count, f) = (
-                        function.name.clone(),
-                        function.upvalue_count,
-                        Rc::downgrade(&function),
-                    );
-                    let mut closure_object = ClosureObject::new(&f_name, f_upvalue_count, f);
-                    for i in 0..f_upvalue_count {
+                    let (upvalue_count, function) = (function.upvalue_count, Rc::clone(&function));
+                    let mut closure_object = ClosureObject::new(upvalue_count, function);
+                    // TODO: investigate adding upvalues "index" and "is_local" to array in function, no need to emit bytes
+                    for i in 0..upvalue_count {
                         let Operation::ClosureIsLocalByte(is_local) = self.read_operation()? else {
                             return Err(RuntimeError::ClosureOpcode);
                         };
                         let Operation::ClosureIndexByte(index) = self.read_operation()? else {
                             return Err(RuntimeError::ClosureOpcode);
                         };
-                        if is_local {
-                            let upvalue = closure_object
-                                .upvalues
-                                .get_mut(i as usize)
-                                .ok_or(RuntimeError::OutOfBounds)?;
+                        let upvalue = if is_local {
                             let upvalue_slot = self.current_frame().slot + index as usize;
-                            *upvalue = Some(self.capture_upvalue(upvalue_slot));
+                            self.capture_upvalue(upvalue_slot)
                         } else {
-                            let Some(upvalue) =
+                            Rc::clone(
                                 &self.current_frame().closure.upvalues[index as usize]
-                            else {
-                                return Err(RuntimeError::OutOfBounds);
-                            };
-                            closure_object.upvalues[i as usize] = Some(upvalue.clone())
-                        }
+                                    .as_ref()
+                                    .unwrap(),
+                            )
+                        };
+                        closure_object.upvalues[i as usize].replace(upvalue);
                     }
-                    self.push(Value::Closure(Rc::new(closure_object)));
+                    self.push(Value::Closure(Rc::new(closure_object)))?
                 }
                 Operation::GetUpvalue(upvalue_slot) => {
                     let slot = *upvalue_slot as usize;
@@ -351,7 +334,7 @@ impl Vm {
                         }
                         UpvalueObject::Closed(value) => value.clone(),
                     };
-                    self.push(value);
+                    self.push(value)?
                 }
                 Operation::SetUpvalue(upvalue_slot) => {
                     let slot = *upvalue_slot as usize;
@@ -379,7 +362,7 @@ impl Vm {
                         return Err(RuntimeError::ConstantClassNotFound);
                     };
                     let class = Rc::new(RefCell::new(ClassObject::new(&name)));
-                    self.push(Value::Class(class));
+                    self.push(Value::Class(class))?
                 }
                 Operation::GetProperty(index) => {
                     let Value::Instance(instance) = self.peek(self.current_slot())? else {
@@ -393,17 +376,12 @@ impl Vm {
                         Some(value) => {
                             let value = value.try_into()?;
                             self.pop();
-                            self.push(value);
+                            self.push(value)?;
                             continue;
                         }
                         None => {
                             let instance = Rc::clone(&instance);
-                            let class = instance
-                                .borrow()
-                                .class
-                                .upgrade()
-                                .ok_or(RuntimeError::InstanceGetClass)?;
-                            let class = class.as_ref();
+                            let class = &instance.borrow().class;
                             self.bind_method(name, class)?;
                         }
                     };
@@ -422,7 +400,7 @@ impl Vm {
                         .fields
                         .insert(name, value.clone().into());
                     self.pop();
-                    self.push(value);
+                    self.push(value)?
                 }
                 Operation::Method(index) => {
                     let Value::String(name) = self.read_constant(*index)? else {
@@ -467,7 +445,7 @@ impl Vm {
                     let Value::Class(superclass) = self.pop() else {
                         return Err(RuntimeError::ConstantSuperclassNotFound);
                     };
-                    self.invoke_from_class(superclass, &method, *argument_count)?;
+                    self.invoke_from_class(&superclass, &method, *argument_count)?;
                 }
             }
         }
@@ -483,18 +461,12 @@ impl Vm {
             self.stack[self.current_slot() - argument_count as usize] = Some(value);
             return self.call_value(argument_count);
         }
-
-        let class = receiver
-            .borrow()
-            .class
-            .upgrade()
-            .ok_or(RuntimeError::InstanceGetClass)?;
-        self.invoke_from_class(class, method, argument_count)
+        self.invoke_from_class(&Rc::clone(&receiver).borrow().class, method, argument_count)
     }
 
     fn invoke_from_class(
         &mut self,
-        class: Rc<RefCell<ClassObject>>,
+        class: &Rc<RefCell<ClassObject>>,
         name: &str,
         argument_count: u8,
     ) -> InterpretResult<()> {
@@ -567,7 +539,7 @@ impl Vm {
                 let result =
                     (function.function)(argument_count, self.stack_top - argument_count as usize);
                 self.stack_top -= argument_count as usize + 1;
-                self.push(result);
+                self.push(result)?;
                 Ok(())
             }
             Value::Closure(closure) => {
@@ -576,21 +548,18 @@ impl Vm {
             }
             Value::Class(class) => {
                 let instance = Value::Instance(Rc::new(RefCell::new(InstanceObject::new(
-                    Rc::downgrade(&class),
+                    Rc::clone(&class),
                 ))));
                 self.stack[self.current_slot() - argument_count as usize].replace(instance);
                 if let Some(closure) = class.borrow().methods.get(INIT_STRING) {
                     self.call(Rc::clone(&closure), argument_count)?;
                 } else if argument_count != 0 {
-                    return Err(RuntimeError::MissingClassInitMethod);
+                    return Err(RuntimeError::ClassArguments(argument_count));
                 }
                 Ok(())
             }
             Value::BoundMethod(bound_method) => {
-                let closure = bound_method
-                    .closure
-                    .upgrade()
-                    .ok_or(RuntimeError::BoundMethodGetClosure)?;
+                let closure = bound_method.closure;
                 self.stack[self.current_slot() - argument_count as usize] =
                     Some(Value::Instance(Rc::clone(&bound_method.receiver)));
                 self.call(closure, argument_count)?;
@@ -601,10 +570,7 @@ impl Vm {
     }
 
     fn call(&mut self, closure: Rc<ClosureObject>, argument_count: u8) -> InterpretResult<()> {
-        let function = closure
-            .function
-            .upgrade()
-            .ok_or(RuntimeError::ClosureGetFunction)?;
+        let function = &closure.function;
         if function.arity != argument_count {
             return Err(RuntimeError::FunctionArity(function.arity, argument_count));
         }
@@ -625,9 +591,8 @@ impl Vm {
         let Value::Instance(receiver) = self.pop() else {
             panic!("instance not on stack"); // TODO: cleanup
         };
-        let bound_method = BoundMethod::new(Rc::clone(&receiver), Rc::downgrade(&closure));
-        self.push(Value::BoundMethod(bound_method));
-        Ok(())
+        let bound_method = BoundMethod::new(Rc::clone(&receiver), Rc::clone(&closure));
+        self.push(Value::BoundMethod(bound_method))
     }
 
     pub fn interpret(&mut self, source: &str) -> InterpretResult<()> {
@@ -636,11 +601,10 @@ impl Vm {
             return Err(RuntimeError::CompileError); // TODO: can propagate this error from parser.compile()
         };
         let function = Rc::new(function);
-        self.push(Value::Function(Rc::clone(&function)));
+        self.push(Value::Function(Rc::clone(&function)))?;
         let closure = Rc::new(ClosureObject::new(
-            &function.name,
             function.upvalue_count,
-            Rc::downgrade(&function),
+            Rc::clone(&function),
         ));
         self.call(closure, 0)
             .expect("Failed to call top-level script.");

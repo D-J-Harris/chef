@@ -77,31 +77,42 @@ impl From<Value> for FieldValue {
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self, other)
+        match (self, other) {
+            (Self::Nil, Self::Nil) => true,
+            (Self::Boolean(a), Self::Boolean(b)) => *a == *b,
+            (Self::Number(a), Self::Number(b)) => *a == *b,
+            (Self::String(a), Self::String(b)) => b.eq(a),
+            (Self::BoundMethod(a), Self::BoundMethod(b)) => b.eq(a),
+            (Self::Class(a), Self::Class(b)) => Rc::ptr_eq(a, b),
+            (Self::Closure(a), Self::Closure(b)) => Rc::ptr_eq(a, b),
+            (Self::NativeFunction(a), Self::NativeFunction(b)) => Rc::ptr_eq(a, b),
+            (Self::Function(a), Self::Function(b)) => Rc::ptr_eq(a, b),
+            (Self::Instance(a), Self::Instance(b)) => Rc::ptr_eq(a, b),
+            _ => false,
+        }
     }
 }
 
-fn format_function_object(function_object: &Rc<FunctionObject>) -> String {
-    match function_object.name.is_empty() {
+fn print_function(name: &str) -> String {
+    match name.is_empty() {
         true => "<script>".into(),
-        false => format!("<fn {}>", function_object.name),
+        false => format!("<fn {}>", name),
     }
 }
 
-// TODO: clean up Displays for Value types (e.g. looking through weak types)
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Nil => write!(f, "nil"),
             Value::Number(number) => write!(f, "{number}"),
             Value::Boolean(boolean) => write!(f, "{boolean}"),
-            Value::String(rc) => write!(f, "{}", rc),
-            Value::Function(rc) => write!(f, "{}", format_function_object(rc)),
-            Value::NativeFunction(rc) => write!(f, "<native fn {}>", rc.name),
-            Value::Closure(rc) => write!(f, "{}", rc.function_name),
+            Value::String(string) => write!(f, "{string}"),
+            Value::NativeFunction(_) => write!(f, "<native fn>"),
+            Value::Function(rc) => write!(f, "{}", print_function(&rc.name)),
+            Value::Closure(rc) => write!(f, "{}", print_function(&rc.function.name)),
             Value::Class(rc) => write!(f, "{}", rc.borrow().name),
-            Value::Instance(_rc) => write!(f, "class instance"),
-            Value::BoundMethod(_rc) => write!(f, "bound method"),
+            Value::Instance(rc) => write!(f, "{} instance", rc.borrow().class.borrow().name),
+            Value::BoundMethod(rc) => write!(f, "{}", print_function(&rc.closure.function.name)),
         }
     }
 }
@@ -148,23 +159,16 @@ impl Value {
         Ok(())
     }
 
-    pub fn falsey(&self) -> InterpretResult<bool> {
+    pub fn falsey(&self) -> bool {
         match self {
-            Self::Number(_) => Ok(false),
-            Self::Boolean(b) => Ok(!b),
-            Self::Nil => Ok(true),
-            _ => Err(RuntimeError::ValueFalsinessOperation),
+            Self::Boolean(boolean) => !boolean,
+            Self::Nil => true,
+            _ => false,
         }
     }
 
     pub fn is_equal(&self, rhs: Self) -> bool {
-        match (self, rhs) {
-            (Self::Nil, Self::Nil) => true,
-            (Self::Boolean(a), Self::Boolean(b)) => *a == b,
-            (Self::Number(a), Self::Number(b)) => *a == b,
-            (Self::String(a), Self::String(b)) => b.eq(a),
-            _ => false,
-        }
+        rhs.eq(self)
     }
 
     pub fn is_greater(&self, rhs: Self) -> InterpretResult<bool> {

@@ -76,6 +76,12 @@ In theory, if every other object reference besides these are `Weak<T>` then we c
 cargo test
 ```
 
+The tests differ to the original test suite in the following ways:
+
+- `scanning/*.lox` is removed
+- `expressions/parse.lox` is removed
+- `operator/equals_method.lox` second assertion changed to expect true
+
 ## Copyright Notice
 
 [Test and benchmark files](./tests/suite/) from [Robert Nystrom](https://github.com/munificent/craftinginterpreters) (MIT licensed)

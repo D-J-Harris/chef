@@ -1,12 +1,8 @@
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    rc::{Rc, Weak},
-};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
     chunk::Chunk,
-    common::U8_MAX,
+    common::UPVALUES_MAX_COUNT,
     value::{FieldValue, Value},
 };
 
@@ -41,7 +37,7 @@ pub struct FunctionObject {
     pub chunk: Chunk,
     pub name: String,
     pub kind: FunctionKind,
-    pub upvalue_count: u8,
+    pub upvalue_count: usize,
 }
 
 impl FunctionObject {
@@ -59,20 +55,18 @@ impl FunctionObject {
 
 #[derive(Debug)]
 pub struct ClosureObject {
-    pub upvalue_count: u8,
-    pub function_name: String,
-    pub function: Weak<FunctionObject>,
-    pub upvalues: [Option<Rc<RefCell<UpvalueObject>>>; U8_MAX],
+    pub upvalue_count: usize,
+    pub function: Rc<FunctionObject>,
+    pub upvalues: [Option<Rc<RefCell<UpvalueObject>>>; UPVALUES_MAX_COUNT],
 }
 
 const UPVALUE_DEFAULT: Option<Rc<RefCell<UpvalueObject>>> = None;
 impl ClosureObject {
-    pub fn new(function_name: &str, upvalue_count: u8, function: Weak<FunctionObject>) -> Self {
+    pub fn new(upvalue_count: usize, function: Rc<FunctionObject>) -> Self {
         Self {
             upvalue_count,
-            function_name: function_name.into(),
             function,
-            upvalues: [UPVALUE_DEFAULT; U8_MAX],
+            upvalues: [UPVALUE_DEFAULT; UPVALUES_MAX_COUNT],
         }
     }
 }
@@ -110,12 +104,12 @@ impl ClassObject {
 
 #[derive(Debug)]
 pub struct InstanceObject {
-    pub class: Weak<RefCell<ClassObject>>,
+    pub class: Rc<RefCell<ClassObject>>,
     pub fields: HashMap<String, FieldValue>,
 }
 
 impl InstanceObject {
-    pub fn new(class: Weak<RefCell<ClassObject>>) -> Self {
+    pub fn new(class: Rc<RefCell<ClassObject>>) -> Self {
         Self {
             class,
             fields: HashMap::new(),
@@ -126,12 +120,18 @@ impl InstanceObject {
 #[derive(Debug, Clone)]
 pub struct BoundMethod {
     pub receiver: Rc<RefCell<InstanceObject>>,
-    pub closure: Weak<ClosureObject>,
+    pub closure: Rc<ClosureObject>,
 }
 
 impl BoundMethod {
-    pub fn new(receiver: Rc<RefCell<InstanceObject>>, closure: Weak<ClosureObject>) -> Self {
+    pub fn new(receiver: Rc<RefCell<InstanceObject>>, closure: Rc<ClosureObject>) -> Self {
         Self { receiver, closure }
+    }
+}
+
+impl PartialEq for BoundMethod {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.receiver, &other.receiver) && Rc::ptr_eq(&self.closure, &other.closure)
     }
 }
 

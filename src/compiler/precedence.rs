@@ -1,7 +1,12 @@
 use std::borrow::BorrowMut;
 use std::u8;
 
-use crate::{chunk::Operation, scanner::token::TokenKind, value::Value};
+use crate::{
+    chunk::Operation,
+    common::{JUMP_MAX_COUNT, SUPER_STRING, UPVALUES_MAX_COUNT},
+    scanner::token::TokenKind,
+    value::Value,
+};
 
 use super::{CompilerContext, Parser};
 
@@ -44,8 +49,8 @@ impl Parser<'_> {
             ParseFunctionKind::Or => Self::or(self),
             ParseFunctionKind::Call => Self::call(self),
             ParseFunctionKind::Dot => Self::dot(self, Self::can_assign(precedence)),
-            ParseFunctionKind::This => Self::this(self, Self::can_assign(precedence)),
-            ParseFunctionKind::Super => Self::super_(self, Self::can_assign(precedence)),
+            ParseFunctionKind::This => Self::this(self),
+            ParseFunctionKind::Super => Self::super_(self),
         }
     }
 
@@ -162,7 +167,7 @@ impl Parser<'_> {
     }
 
     fn and(&mut self) {
-        self.emit_operation(Operation::JumpIfFalse(u8::MAX));
+        self.emit_operation(Operation::JumpIfFalse(JUMP_MAX_COUNT));
         let operations_before_and = self.current_chunk().code.len();
         self.emit_operation(Operation::Pop);
         self.parse_precedence(Precedence::And);
@@ -170,9 +175,9 @@ impl Parser<'_> {
     }
 
     fn or(&mut self) {
-        self.emit_operation(Operation::JumpIfFalse(u8::MAX));
+        self.emit_operation(Operation::JumpIfFalse(JUMP_MAX_COUNT));
         let operations_before_else_jump = self.current_chunk().code.len();
-        self.emit_operation(Operation::Jump(u8::MAX));
+        self.emit_operation(Operation::Jump(JUMP_MAX_COUNT));
         let operations_before_end_jump = self.current_chunk().code.len();
 
         self.patch_jump(operations_before_else_jump);
@@ -228,7 +233,7 @@ impl Parser<'_> {
         }
     }
 
-    fn this(&mut self, can_assign: bool) {
+    fn this(&mut self) {
         if self.class_compiler.is_none() {
             self.error("Can't use 'this' outside of a class.");
             return;
@@ -236,7 +241,7 @@ impl Parser<'_> {
         self.variable(false);
     }
 
-    fn super_(&mut self, can_assign: bool) {
+    fn super_(&mut self) {
         match &self.class_compiler {
             None => self.error("Can't use 'super' outside of a class."),
             Some(class) => {
@@ -257,10 +262,10 @@ impl Parser<'_> {
                 self.error("Can't have more than 255 arguments.");
                 return;
             };
-            self.named_variable("super", false);
+            self.named_variable(SUPER_STRING, false);
             self.emit_operation(Operation::SuperInvoke(name_index, argument_count));
         } else {
-            self.named_variable("super", false);
+            self.named_variable(SUPER_STRING, false);
             self.emit_operation(Operation::GetSuper(name_index));
         }
     }
@@ -300,19 +305,22 @@ pub fn add_upvalue(
     is_local: bool,
 ) -> Result<Option<u8>, String> {
     let upvalue_count = &mut compiler.function.upvalue_count;
-    for i in 0..*upvalue_count {
-        let upvalue = &mut compiler.upvalues[i as usize];
-        if upvalue.index == index && upvalue.is_local == is_local {
-            return Ok(Some(i));
-        }
-    }
-    if *upvalue_count == u8::MAX {
+    if *upvalue_count == UPVALUES_MAX_COUNT {
         return Err("Too many closure variables in function.".into());
     }
-    compiler.upvalues[*upvalue_count as usize].is_local = is_local;
-    compiler.upvalues[*upvalue_count as usize].index = index;
+    for i in 0..*upvalue_count {
+        let upvalue = &mut compiler.upvalues[i];
+        if upvalue.index == index && upvalue.is_local == is_local {
+            // TODO: amend max sizes so counts are in u8 and max count is 255 not 256
+            // Safety: we know i < 256
+            return Ok(Some(i as u8));
+        }
+    }
+    let to_return = *upvalue_count as u8;
+    compiler.upvalues[*upvalue_count].is_local = is_local;
+    compiler.upvalues[*upvalue_count].index = index;
     *upvalue_count += 1;
-    Ok(Some(*upvalue_count - 1))
+    Ok(Some(to_return))
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]

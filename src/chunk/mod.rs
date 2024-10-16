@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::{common::U8_MAX, value::Value};
+use crate::{common::U8_COUNT_USIZE, value::Value};
 mod debug;
 
 #[derive(Debug, Clone, Copy)]
@@ -46,21 +46,23 @@ pub enum Operation {
     GetSuper(u8),
 }
 
+const CONSTANTS_DEFAULT: Option<Value> = None;
+
 #[derive(Debug)]
 pub struct Chunk {
     pub code: Vec<Operation>,
     pub lines: Vec<usize>,
-    pub constants: [Option<Value>; U8_MAX],
+    pub constants: [Option<Value>; CONSTANTS_MAX],
     pub constants_count: usize,
 }
 
-const CONSTANT_DEFAULT: Option<Value> = None;
+const CONSTANTS_MAX: usize = U8_COUNT_USIZE;
 impl Chunk {
     pub fn new() -> Self {
         Self {
             code: Vec::new(),
             lines: Vec::new(),
-            constants: [CONSTANT_DEFAULT; U8_MAX],
+            constants: [CONSTANTS_DEFAULT; CONSTANTS_MAX],
             constants_count: 0,
         }
     }
@@ -70,24 +72,15 @@ impl Chunk {
         self.lines.push(line);
     }
 
-    /// Add constant to [`Chunk`], and return its index, otherwise return None.
-    /// If it already exists in [`Chunk`], returns previous index of constant.
+    /// Add constant to [`Chunk`], and return its index.
+    /// Returns `None` if adding a new constant would overflow the constants stack.
     pub fn add_constant(&mut self, value: Value) -> Option<u8> {
-        for index in 0..self.constants_count {
-            let Some(Some(constant)) = self.constants.get(index) else {
-                break;
-            };
-            match value.eq(constant) {
-                true => return Some(index as u8),
-                false => continue,
-            }
-        }
-        if self.constants_count > U8_MAX {
-            // TODO: propagate as error rather than Option
+        if self.constants_count == U8_COUNT_USIZE {
             return None;
         };
-        self.constants[self.constants_count] = Some(value);
+        let index = self.constants_count;
+        self.constants[index] = Some(value);
         self.constants_count += 1;
-        Some(self.constants_count as u8 - 1)
+        Some(index as u8)
     }
 }

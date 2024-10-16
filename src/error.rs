@@ -12,8 +12,6 @@ pub enum RuntimeError {
     UninitializedStackValue,
     #[error("Attempted to read from uninitialized constant slot.")]
     UninitializedConstantValue,
-    #[error("Attempted to read from uninitialized upvalue slot.")]
-    UninitializedUpvalue,
     #[error("Stack overflow.")]
     StackOverflow,
     #[error("Only instances have properties.")]
@@ -22,16 +20,12 @@ pub enum RuntimeError {
     InstanceSetProperty,
     #[error("Only instances have methods.")]
     InstanceInvoke,
-    #[error("Call to closure does not have an associated function.")]
-    ClosureGetFunction,
-    #[error("Call to instance does not have an associated class.")]
-    InstanceGetClass,
-    #[error("Call to bound method does not have a closure.")]
-    BoundMethodGetClosure,
-    #[error("Expected {0} arguments but got {1}.")]
-    FunctionArity(u8, u8),
     #[error("Can only call functions and classes.")]
     InvalidCallee,
+    #[error("Expected {0} arguments but got {1}.")]
+    FunctionArity(u8, u8),
+    #[error("Expected 0 arguments but got {0}.")]
+    ClassArguments(u8),
     #[error("Undefined variable '{0}'.")]
     UndefinedVariable(String),
     #[error("Undefined property '{0}'.")]
@@ -40,10 +34,8 @@ pub enum RuntimeError {
     ValueNegationOperation,
     #[error("Operands must be numbers.")]
     ValueNumberOnlyOperation,
-    #[error("Operands must both be numbers or both be strings.")]
+    #[error("Operands must be two numbers or two strings.")]
     ValueAddOperation,
-    #[error("Operand must be a number, boolean or nil.")]
-    ValueFalsinessOperation,
     #[error("No string name initialized.")]
     ConstantStringNotFound,
     #[error("No function name initialized.")]
@@ -54,12 +46,8 @@ pub enum RuntimeError {
     ConstantClassNotFound,
     #[error("Superclass must be a class.")]
     ConstantSuperclassNotFound,
-    #[error("Expected 0 arguments but got %d.")]
-    MissingClassInitMethod,
     #[error("Invalid field reference.")]
     InstanceReferenceInvalid,
     #[error("Invalid closure opcodes")]
     ClosureOpcode, // TODO: can be removed with more trust in code?
-    #[error("Generic error while transitioning.")] // TODO: remove once done
-    GenericRuntimeError,
 }

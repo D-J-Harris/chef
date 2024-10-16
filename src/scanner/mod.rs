@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use token::{Token, TokenKind};
 
+use crate::common::SUPER_STRING;
+
 pub mod token;
 
 pub struct Scanner<'source> {
@@ -15,6 +17,7 @@ pub struct Scanner<'source> {
 impl<'source> Scanner<'source> {
     pub fn new(source: &'source str) -> Self {
         let mut identifiers = HashMap::with_capacity(16);
+        identifiers.insert(SUPER_STRING, TokenKind::Super);
         identifiers.insert("and", TokenKind::And);
         identifiers.insert("class", TokenKind::Class);
         identifiers.insert("else", TokenKind::Else);
@@ -26,7 +29,6 @@ impl<'source> Scanner<'source> {
         identifiers.insert("or", TokenKind::Or);
         identifiers.insert("print", TokenKind::Print);
         identifiers.insert("return", TokenKind::Return);
-        identifiers.insert("super", TokenKind::Super);
         identifiers.insert("this", TokenKind::This);
         identifiers.insert("true", TokenKind::True);
         identifiers.insert("var", TokenKind::Var);
