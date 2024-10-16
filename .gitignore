@@ -38,5 +38,6 @@ rust-project.json
 .history
 .ionide
 
+.DS_STORE
 NOTES.md
-local.chef
+local.lox
