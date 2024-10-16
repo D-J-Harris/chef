@@ -4,7 +4,6 @@ use std::rc::Rc;
 
 use crate::chunk::Operation;
 use crate::common::{FRAMES_MAX_COUNT, INIT_STRING, STACK_VALUES_MAX_COUNT};
-use crate::compiler::Parser;
 use crate::error::{InterpretResult, RuntimeError};
 use crate::objects::{
     BoundMethod, ClassObject, ClosureObject, FunctionObject, InstanceObject, UpvalueObject,
@@ -108,7 +107,7 @@ impl Vm {
 
     fn pop_frame(&mut self) -> CallFrame {
         self.frame_count -= 1;
-        let frame = std::mem::replace(&mut self.frames[self.frame_count], None);
+        let frame = self.frames[self.frame_count].take();
         frame.expect("No frame to pop from stack.")
     }
 
@@ -139,7 +138,7 @@ impl Vm {
 
     fn pop(&mut self) -> Value {
         self.stack_top -= 1;
-        let value = std::mem::replace(&mut self.stack[self.stack_top], None);
+        let value = self.stack[self.stack_top].take();
         value.expect("No value to pop from stack.")
     }
 
@@ -148,29 +147,25 @@ impl Vm {
     }
 
     fn peek(&self, slot: usize) -> InterpretResult<&Value> {
-        Ok(self
-            .stack
+        self.stack
             .get(slot)
             .ok_or(RuntimeError::OutOfBounds)?
             .as_ref()
-            .ok_or(RuntimeError::UninitializedStackValue)?)
+            .ok_or(RuntimeError::UninitializedStackValue)
     }
 
     fn peek_mut(&mut self, slot: usize) -> InterpretResult<&mut Value> {
-        Ok(self
-            .stack
+        self.stack
             .get_mut(slot)
             .ok_or(RuntimeError::OutOfBounds)?
             .as_mut()
-            .ok_or(RuntimeError::UninitializedStackValue)?)
+            .ok_or(RuntimeError::UninitializedStackValue)
     }
 
     pub fn run(&mut self) -> InterpretResult<()> {
-        #[cfg(feature = "debug_trace_execution")]
-        println!("==== Interpreting Chunk ====");
         loop {
             let operation = self.read_operation()?;
-            #[cfg(feature = "debug_trace_execution")]
+            #[cfg(feature = "debug_trace")]
             self.current_function()
                 .chunk
                 .disassemble_instruction(self.current_frame().ip - 1);
@@ -298,7 +293,6 @@ impl Vm {
                     };
                     let (upvalue_count, function) = (function.upvalue_count, Rc::clone(&function));
                     let mut closure_object = ClosureObject::new(upvalue_count, function);
-                    // TODO: investigate adding upvalues "index" and "is_local" to array in function, no need to emit bytes
                     for i in 0..upvalue_count {
                         let Operation::ClosureIsLocalByte(is_local) = self.read_operation()? else {
                             return Err(RuntimeError::ClosureOpcode);
@@ -311,12 +305,12 @@ impl Vm {
                             self.capture_upvalue(upvalue_slot)
                         } else {
                             Rc::clone(
-                                &self.current_frame().closure.upvalues[index as usize]
+                                self.current_frame().closure.upvalues[index as usize]
                                     .as_ref()
                                     .unwrap(),
                             )
                         };
-                        closure_object.upvalues[i as usize].replace(upvalue);
+                        closure_object.upvalues[i].replace(upvalue);
                     }
                     self.push(Value::Closure(Rc::new(closure_object)))?
                 }
@@ -327,9 +321,7 @@ impl Vm {
                     };
                     let value = match &*upvalue.borrow() {
                         UpvalueObject::Open(value_slot) => {
-                            let Some(value) = &self.stack[*value_slot] else {
-                                panic!("No value at open upvalue location."); // TODO: propagate properly
-                            };
+                            let value = self.stack[*value_slot].as_ref().unwrap();
                             value.clone()
                         }
                         UpvalueObject::Closed(value) => value.clone(),
@@ -425,7 +417,7 @@ impl Vm {
                         subclass
                             .borrow_mut()
                             .methods
-                            .insert(name.clone(), Rc::clone(&method));
+                            .insert(name.clone(), Rc::clone(method));
                     }
                     self.pop();
                 }
@@ -456,12 +448,12 @@ impl Vm {
         else {
             return Err(RuntimeError::InstanceInvoke);
         };
-        if let Some(field_value) = Rc::clone(&receiver).borrow().fields.get(method) {
+        if let Some(field_value) = Rc::clone(receiver).borrow().fields.get(method) {
             let value = field_value.try_into()?;
             self.stack[self.current_slot() - argument_count as usize] = Some(value);
             return self.call_value(argument_count);
         }
-        self.invoke_from_class(&Rc::clone(&receiver).borrow().class, method, argument_count)
+        self.invoke_from_class(&Rc::clone(receiver).borrow().class, method, argument_count)
     }
 
     fn invoke_from_class(
@@ -475,7 +467,7 @@ impl Vm {
             .methods
             .get(name)
             .ok_or(RuntimeError::UndefinedProperty(name.into()))?;
-        self.call(Rc::clone(&method), argument_count)
+        self.call(Rc::clone(method), argument_count)
     }
 
     fn define_method(&mut self, name: String) -> InterpretResult<()> {
@@ -519,7 +511,7 @@ impl Vm {
             match *upvalue.borrow() {
                 UpvalueObject::Open(slot) => {
                     if slot == value_slot {
-                        return Rc::clone(&upvalue);
+                        return Rc::clone(upvalue);
                     }
                 }
                 UpvalueObject::Closed(_) => continue,
@@ -533,7 +525,7 @@ impl Vm {
     fn call_value(&mut self, argument_count: u8) -> InterpretResult<()> {
         let callee = self
             .peek(self.current_slot() - argument_count as usize)?
-            .clone(); // TODO: can mutable behaviour be allowed without cloning the peek here?
+            .clone();
         match callee {
             Value::NativeFunction(function) => {
                 let result =
@@ -552,7 +544,7 @@ impl Vm {
                 ))));
                 self.stack[self.current_slot() - argument_count as usize].replace(instance);
                 if let Some(closure) = class.borrow().methods.get(INIT_STRING) {
-                    self.call(Rc::clone(&closure), argument_count)?;
+                    self.call(Rc::clone(closure), argument_count)?;
                 } else if argument_count != 0 {
                     return Err(RuntimeError::ClassArguments(argument_count));
                 }
@@ -588,18 +580,15 @@ impl Vm {
             .methods
             .get(&name)
             .ok_or(RuntimeError::UndefinedProperty(name))?;
-        let Value::Instance(receiver) = self.pop() else {
-            panic!("instance not on stack"); // TODO: cleanup
+        let receiver = match self.pop() {
+            Value::Instance(instance) => instance,
+            _ => return Err(RuntimeError::NoInstanceOnStack),
         };
-        let bound_method = BoundMethod::new(Rc::clone(&receiver), Rc::clone(&closure));
+        let bound_method = BoundMethod::new(Rc::clone(&receiver), Rc::clone(closure));
         self.push(Value::BoundMethod(bound_method))
     }
 
-    pub fn interpret(&mut self, source: &str) -> InterpretResult<()> {
-        let parser = Parser::new(source);
-        let Some(function) = parser.compile() else {
-            return Err(RuntimeError::CompileError); // TODO: can propagate this error from parser.compile()
-        };
+    pub fn interpret(&mut self, function: FunctionObject) -> InterpretResult<()> {
         let function = Rc::new(function);
         self.push(Value::Function(Rc::clone(&function)))?;
         let closure = Rc::new(ClosureObject::new(
@@ -610,13 +599,8 @@ impl Vm {
             .expect("Failed to call top-level script.");
         let result = self.run();
         if let Err(err) = &result {
-            match err {
-                RuntimeError::CompileError => (),
-                _ => {
-                    eprintln!("{err}");
-                    self.stack_error();
-                }
-            }
+            eprintln!("{err}");
+            self.stack_error();
         };
         result
     }

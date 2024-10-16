@@ -13,3 +13,10 @@ pub const FUNCTION_ARITY_MAX_COUNT: u8 = u8::MAX;
 
 pub const INIT_STRING: &str = "init";
 pub const SUPER_STRING: &str = "super";
+
+pub fn print_function(name: &str) -> String {
+    match name.is_empty() {
+        true => "<script>".into(),
+        false => format!("<fn {}>", name),
+    }
+}

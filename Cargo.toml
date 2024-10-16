@@ -4,8 +4,7 @@ version = "0.0.0"
 edition = "2021"
 
 [features]
-debug_trace_execution = []
-debug_print_code = []
+debug_trace = []
 debug_trace_gc = []
 
 [dependencies]

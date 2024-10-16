@@ -135,54 +135,51 @@ impl PartialEq for BoundMethod {
     }
 }
 
-// TODO: better messages here
 #[cfg(feature = "debug_trace_gc")]
 mod debug {
+    use crate::common::print_function;
+
     use super::{
         BoundMethod, ClassObject, ClosureObject, FunctionObject, InstanceObject, UpvalueObject,
     };
 
     impl Drop for FunctionObject {
         fn drop(&mut self) {
-            let name = match self.name.is_empty() {
-                true => "<script>",
-                false => &self.name,
-            };
-            println!("dropped function {}", name)
+            println!("Dropped function {}", print_function(&self.name))
         }
     }
 
     impl Drop for ClosureObject {
         fn drop(&mut self) {
-            let name = match self.function_name.is_empty() {
-                true => "<script>",
-                false => &self.function_name,
-            };
-            println!("dropped closure {}", name)
+            println!("Dropped closure {}", print_function(&self.function.name))
         }
     }
 
     impl Drop for UpvalueObject {
         fn drop(&mut self) {
-            println!("dropped upvalue {:?}", self)
+            println!("Dropped upvalue {:?}", self)
         }
     }
 
     impl Drop for ClassObject {
         fn drop(&mut self) {
-            println!("dropped class {}", self.name)
+            println!("Dropped class {}", self.name)
         }
     }
 
     impl Drop for InstanceObject {
         fn drop(&mut self) {
-            println!("dropped class instance {:?}", self)
+            println!("Dropped class instance {}", self.class.borrow().name)
         }
     }
 
     impl Drop for BoundMethod {
         fn drop(&mut self) {
-            println!("dropped bound method {:?}", self)
+            println!(
+                "Dropped bound method {} on receiver instance {}",
+                print_function(&self.closure.function.name),
+                self.receiver.borrow().class.borrow().name
+            )
         }
     }
 }

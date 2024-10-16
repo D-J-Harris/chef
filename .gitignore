@@ -37,3 +37,6 @@ rust-project.json
 # Ignore all local history of files
 .history
 .ionide
+
+NOTES.md
+local.chef

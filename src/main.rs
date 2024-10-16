@@ -3,6 +3,7 @@ use std::io;
 use std::io::Write;
 use std::process::exit;
 
+use compiler::Compiler;
 use vm::Vm;
 
 mod chunk;
@@ -39,7 +40,10 @@ fn repl(mut vm: Vm) {
             .read_line(&mut buf)
             .expect("Could not read user input.");
         buf.push('\0');
-        let _ = vm.interpret(&buf);
+        let compiler = Compiler::new(&buf);
+        if let Some(function) = compiler.compile() {
+            let _ = vm.interpret(function);
+        }
     }
 }
 
@@ -49,10 +53,11 @@ fn run_file(mut vm: Vm, path: &str) {
         exit(74);
     };
     source.push('\0');
-    if let Err(err) = vm.interpret(&source) {
-        match err {
-            error::RuntimeError::CompileError => exit(65),
-            _ => exit(70),
-        }
+    let compiler = Compiler::new(&source);
+    let Some(function) = compiler.compile() else {
+        exit(65)
+    };
+    if vm.interpret(function).is_err() {
+        exit(70)
     };
 }

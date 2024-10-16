@@ -1,10 +1,12 @@
 # `chef`
 
-Bytecode interpreter for the programming language `chef`, created following Part III of the book [Crafting Interpreters](https://craftinginterpreters.com/)
+Custom programming language `chef`, created following Part III of the book [Crafting Interpreters](https://craftinginterpreters.com/) and porting the C bytecode interpreter into Rust
 
-Bootstrapped in Rust (the book uses C)
+TODO: Please find a write-up [here]()
 
 ## Installation
+
+TODO: Package and release `chef`
 
 ```rust
 cargo install chef
@@ -12,63 +14,54 @@ cargo install chef
 
 ## Usage
 
+Run either with
+
+- zero arguments (REPL)
+- one argument, which runs a single file
+
 ```rust
-cargo run --features debug_print_code ./example.chef
+chef
+chef <.chef file>
 ```
 
-## Features
+## Features Flags
 
-- `debug_print_code` - print out the disassembled chunk at the end of the compile step
-- `debug_trace_execution` - print out each disassembled instruction during the interpret step
-- `debug_trace_gc` - print out the drops to explicitly heap-allocated objects that occur throughout the programme
+- `--debug_trace` - print out each disassembled chunk at compile time, and each operation during runtime
+- `--debug_trace_gc` - print out the drops to explicitly heap-allocated objects that occur throughout the programme
 
 ## TODO
 
-- [ ] Change `Operation` and `Value` enums to not carry data through use of `union`. Should `Value` remain copy or cloned through some reference counting?
+- [ ] Fix up debug print formatting
+- [ ] Add string interning
+- [ ] Remove explicit checks for operations the VM should trust the compiler on
+- [ ] Can move upvalues (`is_local` and `index` information) to `Function` object, instead of emitting operations
+
+## Performance TODO
+
+- [ ] Change `Operation` enum to use one byte only (cache locality)
 - [ ] Move from HashMap for identifiers (and parse rules) to a trie structure
-- [ ] Macros and better runtime and compile errors for `Vm`
-- [ ] Understand more about the performance and practical differences between String cloning (Rust) and the String heap allocation exercise from the "Strings" chapter (C). Does this implementation need a GC?
-- [ ] Clean up chunk debugging once `Operation` has been amending to carry no data
-- [ ] Change Option in fixed sized arrays to MaybeUninit and measure performance improvements (unsafe)
-- [ ] Add String interning
-- [ ] Fix tests - class, assignment/this,
-- [ ] Trust your own compiler - do unwraps and explicit access when the VM should trust things to be where they should. This might allow for improvements on optimisation around Weak refs
+- [ ] Can fixed sized arrays be allocated more efficicently than using `Option<T>`
+- [ ] Move array sizes from `U8_COUNT_USIZE` to `u8::MAX`, encode counts as `u8`
+
+## Features TODO
+
+- [ ] `switch` statement
+- [ ] `continue` statement in loops
+- [ ] Support for lists
+- [ ] Support for native method to read from a file
 
 ## Challenges
 
-The book notes a number of stretch challenges, which I have compiled below
-
 - [ ] Devise an encoding that compresses the line information for a series of instructions on the same line
-- [ ] Add `OP_CONSTANT_LONG` operation
-
-> This leads us to optimising the size of constant `Value` so that no space is wasted on smaller constants. We could split up our arrays here to hold types of similar size, at the cost of managing more state and potentially needing to dynamically grow constant arrays more frequently
-
 - [ ] Look into [flexible array members](https://en.wikipedia.org/wiki/Flexible_array_member)
-- [ ] Add support for discerning between string literals that point back to source code and those that own their char array, to save memory on the heap for these cases
+- [ ] Discerning between string literals that point back to source code and those require heap allocation
 - [ ] Support resolve variable scanning through a more efficient DS
-- [ ] Add support for switch statement and continue clauses in for loops
-- [ ] Instruction pointer is accessed a lot, amend how this happens to encourage compiler to put it in registers (see Functions chapter challenges)
+- [ ] Instruction pointer is accessed a lot, amend to encourage compiler to put it in registers
 - [ ] Add arity checking and runtime error handling for native functions
-
-## Decisions
-
-- Just like the source material, the character set is restricted to UTF-8 which enables us to scan the source code one byte at a time. The encoding of the source code is checked to be UTF-8 at runtime
 
 ## Garbage Collection
 
-Roots for objects on the heap are
-
-- VM values stack
-- VM call frame closures
-- Global variables
-- Compiler functions
-- Open upvalues
-- [Bonus] Class methods - these closures are temporaries, otherwise dropped during `define_method`
-- [Bonus] Bound methods as instance fields - these are temporaries, otherwise dropped following the conclusion of `SetProperty`
-- [Bonus] Closures as instance fields - these should be around until the instance drops
-- ^^ maybe `WeakValue` needs `Rc` for bound methods and closures
-
-In theory, if every other object reference besides these are `Weak<T>` then we can have Rust's memory model manage garbage collection for us
+This language implementation does not implement a garbage collector, but implicitly does so through reference counting in the underlying Rust implementation.
 
 ## Test
 
@@ -89,38 +82,3 @@ The tests differ to the original test suite in the following ways:
 [Test suite runner code](./tests/run.rs) inspired from [Manuel Cerón](https://github.com/ceronman/loxido/tree/unsafe) (MIT licensed)
 
 This code is [MIT licensed](./LICENSE)
-
-## Tricky Cases
-
-This one, the closure defined by `init()` is dropped, leaving the `Weak<T>` field reference on `this` empty
-
-```
-class Oops {
-  init() {
-    fun f() {
-      print "not a method";
-    }
-
-    this.field = f;
-  }
-}
-
-var oops = Oops();
-oops.field();
-```
-
-This one, the `Foo()` instance is dropped, leaving the assigned `BoundMethod.receiver` weak reference empty (since the receiver is the instance)
-
-```
-class Foo {
-  bar(arg) {
-    print arg;
-  }
-}
-{
-  var bar = Foo().bar;
-  print "got method";  // expect: got method
-  bar("arg");          // expect: arg
-}
-print "complete";
-```

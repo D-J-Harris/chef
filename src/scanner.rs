@@ -1,10 +1,6 @@
 use std::collections::HashMap;
 
-use token::{Token, TokenKind};
-
 use crate::common::SUPER_STRING;
-
-pub mod token;
 
 pub struct Scanner<'source> {
     identifiers: HashMap<&'static str, TokenKind>,
@@ -34,11 +30,11 @@ impl<'source> Scanner<'source> {
         identifiers.insert("var", TokenKind::Var);
         identifiers.insert("while", TokenKind::While);
         Self {
+            identifiers,
             source,
             start: 0,
             current: 0,
             line: 1,
-            identifiers,
         }
     }
 
@@ -88,7 +84,7 @@ impl<'source> Scanner<'source> {
                 false => self.make_token(TokenKind::Greater),
             },
             b'"' => self.make_string_token(),
-            b if is_digit(b) => self.make_number_token(),
+            b if b.is_ascii_digit() => self.make_number_token(),
             b if is_alpha(b) => self.make_identifier_token(),
             _ => unimplemented!(),
         }
@@ -128,15 +124,15 @@ impl<'source> Scanner<'source> {
     }
 
     fn make_number_token(&mut self) -> Token<'source> {
-        while is_digit(self.peek()) {
+        while self.peek().is_ascii_digit() {
             self.current += 1
         }
         let Some(next) = self.peek_next() else {
             return self.make_token(TokenKind::Number);
         };
-        if self.peek() == b'.' && is_digit(next) {
+        if self.peek() == b'.' && next.is_ascii_digit() {
             self.current += 1;
-            while is_digit(self.peek()) {
+            while self.peek().is_ascii_digit() {
                 self.current += 1
             }
         }
@@ -146,7 +142,7 @@ impl<'source> Scanner<'source> {
     fn make_identifier_token(&mut self) -> Token<'source> {
         loop {
             let byte = self.peek();
-            if !is_digit(byte) && !is_alpha(byte) {
+            if !byte.is_ascii_digit() && !is_alpha(byte) {
                 break;
             }
             self.current += 1;
@@ -203,10 +199,68 @@ impl<'source> Scanner<'source> {
     }
 }
 
-fn is_digit(byte: u8) -> bool {
-    b'0' <= byte && byte <= b'9'
+fn is_alpha(byte: u8) -> bool {
+    byte.is_ascii_lowercase() || byte.is_ascii_uppercase() || byte == b'_'
 }
 
-fn is_alpha(byte: u8) -> bool {
-    (b'a' <= byte && byte <= b'z') || (b'A' <= byte && byte <= b'Z') || byte == b'_'
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum TokenKind {
+    // Single-character tokens.
+    LeftParen,
+    RightParen,
+    LeftBrace,
+    RightBrace,
+    Comma,
+    Dot,
+    Minus,
+    Plus,
+    Semicolon,
+    Slash,
+    Star,
+    // One or two character tokens.
+    Bang,
+    BangEqual,
+    Equal,
+    EqualEqual,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
+    // Literals.
+    Identifier,
+    String,
+    Number,
+    // Keywords.
+    And,
+    Class,
+    Else,
+    False,
+    For,
+    Fun,
+    If,
+    Nil,
+    Or,
+    Print,
+    Return,
+    Super,
+    This,
+    True,
+    Var,
+    While,
+    // Other.
+    Error,
+    Eof,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Token<'source> {
+    pub kind: TokenKind,
+    pub lexeme: &'source str,
+    pub line: usize,
+}
+
+impl<'source> Token<'source> {
+    pub fn new(lexeme: &'source str, line: usize, kind: TokenKind) -> Self {
+        Self { kind, lexeme, line }
+    }
 }

@@ -6,53 +6,46 @@ use crate::common::{
     UPVALUES_MAX_COUNT,
 };
 use crate::objects::{FunctionKind, FunctionObject};
-use crate::scanner::token::Token;
+use crate::scanner::{Token, TokenKind};
 use crate::value::Value;
 use crate::{
     chunk::{Chunk, Operation},
-    scanner::{token::TokenKind, Scanner},
+    scanner::Scanner,
 };
 
 mod precedence;
 
-pub struct Parser<'source> {
+pub struct Compiler<'source> {
     scanner: Scanner<'source>,
     previous: Token<'source>,
     current: Token<'source>,
+    context: CompilerContext<'source>,
+    class_compiler: Option<Box<ClassCompiler>>,
     had_error: bool,
     panic_mode: bool,
-    compiler: Compiler<'source>,
-    class_compiler: Option<Box<ClassCompiler>>,
 }
 
-impl<'source> Parser<'source> {
+impl<'source> Compiler<'source> {
     pub fn new(source: &'source str) -> Self {
-        let initial_token = Token::initial();
+        let initial_token = Token::new("", 1, TokenKind::Error);
+        let context = CompilerContext::new("", FunctionKind::Script);
         Self {
             scanner: Scanner::new(source),
             previous: initial_token,
             current: initial_token,
             had_error: false,
             panic_mode: false,
-            compiler: Compiler::new(),
+            context,
             class_compiler: None,
         }
     }
 
     fn current_chunk(&self) -> &Chunk {
-        &self.compiler.context.function.chunk
+        &self.context.function.chunk
     }
 
     fn current_chunk_mut(&mut self) -> &mut Chunk {
-        &mut self.compiler.context.function.chunk
-    }
-
-    fn current_scope_depth(&self) -> u8 {
-        self.compiler.context.scope_depth
-    }
-
-    fn current_scope_depth_mut(&mut self) -> &mut u8 {
-        &mut self.compiler.context.scope_depth
+        &mut self.context.function.chunk
     }
 
     pub fn compile(mut self) -> Option<FunctionObject> {
@@ -63,7 +56,7 @@ impl<'source> Parser<'source> {
         let had_error = self.had_error;
         let function = match self.end_compiler() {
             Some((f, _upvalues)) => f,
-            None => self.compiler.context.function,
+            None => self.context.function,
         };
         match had_error {
             true => None,
@@ -72,14 +65,14 @@ impl<'source> Parser<'source> {
     }
 
     fn r#match(&mut self, token_kind: TokenKind) -> bool {
-        if !self.check_current_token(token_kind) {
+        if !self.check(token_kind) {
             return false;
         }
         self.advance();
         true
     }
 
-    fn check_current_token(&self, token_kind: TokenKind) -> bool {
+    fn check(&self, token_kind: TokenKind) -> bool {
         self.current.kind == token_kind
     }
 
@@ -106,7 +99,7 @@ impl<'source> Parser<'source> {
             return;
         };
         self.declare_variable();
-        self.emit_operation(Operation::Class(name_constant_index));
+        self.emit(Operation::Class(name_constant_index));
         self.define_variable(name_constant_index);
 
         let current_class_compiler = self.class_compiler.take();
@@ -124,30 +117,27 @@ impl<'source> Parser<'source> {
             self.add_local(SUPER_STRING);
             self.define_variable(0);
             self.named_variable(class_name, false);
-            self.emit_operation(Operation::Inherit);
+            self.emit(Operation::Inherit);
             self.class_compiler.as_mut().unwrap().has_superclass = true;
         }
 
         self.named_variable(class_name, false);
         self.consume(TokenKind::LeftBrace, "Expect '{' before class body.");
-        while !self.check_current_token(TokenKind::RightBrace)
-            && !self.check_current_token(TokenKind::Eof)
-        {
+        while !self.check(TokenKind::RightBrace) && !self.check(TokenKind::Eof) {
             self.method();
         }
         self.consume(TokenKind::RightBrace, "Expect '}' after class body.");
-        self.emit_operation(Operation::Pop);
+        self.emit(Operation::Pop);
         let current_class_compiler = self.class_compiler.take().unwrap();
         if current_class_compiler.has_superclass {
             self.end_scope();
         }
         self.class_compiler = current_class_compiler.enclosing;
-        //currentClass = currentClass->enclosing;
     }
 
     fn method(&mut self) {
         self.consume(TokenKind::Identifier, "Expect method name.");
-        let Some(constant_index) = self.constant_identifier(&self.previous.lexeme) else {
+        let Some(constant_index) = self.constant_identifier(self.previous.lexeme) else {
             self.error("No constants defined.");
             return;
         };
@@ -156,7 +146,7 @@ impl<'source> Parser<'source> {
             _ => FunctionKind::Method,
         };
         self.function(function_kind);
-        self.emit_operation(Operation::Method(constant_index));
+        self.emit(Operation::Method(constant_index));
     }
 
     fn fun_declaration(&mut self) {
@@ -172,9 +162,8 @@ impl<'source> Parser<'source> {
     fn init_compiler(&mut self, function_kind: FunctionKind) {
         let name = self.previous.lexeme;
         let compiler_context = CompilerContext::new(name, function_kind);
-        let enclosing_compiler_context =
-            std::mem::replace(&mut self.compiler.context, compiler_context);
-        self.compiler.context.enclosing = Some(Box::new(enclosing_compiler_context));
+        let enclosing_compiler_context = std::mem::replace(&mut self.context, compiler_context);
+        self.context.enclosing = Some(Box::new(enclosing_compiler_context));
     }
 
     fn function(&mut self, function_kind: FunctionKind) {
@@ -182,9 +171,9 @@ impl<'source> Parser<'source> {
         self.begin_scope();
 
         self.consume(TokenKind::LeftParen, "Expect '(' after function name.");
-        if !self.check_current_token(TokenKind::RightParen) {
+        if !self.check(TokenKind::RightParen) {
             loop {
-                let current_arity = &mut self.compiler.context.function.arity;
+                let current_arity = &mut self.context.function.arity;
                 if *current_arity == FUNCTION_ARITY_MAX_COUNT {
                     self.error_at_current("Can't have more than 255 parameters.");
                     return;
@@ -195,7 +184,6 @@ impl<'source> Parser<'source> {
                     return;
                 };
                 self.define_variable(constant_index);
-
                 if !self.r#match(TokenKind::Comma) {
                     break;
                 }
@@ -219,13 +207,12 @@ impl<'source> Parser<'source> {
             self.error("Too many constants in one chunk.");
             return;
         };
-        self.emit_operation(Operation::Closure(constant_index));
+        self.emit(Operation::Closure(constant_index));
 
         // emit bytes for variable number of closure upvalues
-        for i in 0..upvalue_count {
-            let upvalue = &upvalues[i as usize];
-            self.emit_operation(Operation::ClosureIsLocalByte(upvalue.is_local));
-            self.emit_operation(Operation::ClosureIndexByte(upvalue.index));
+        for upvalue in upvalues.iter().take(upvalue_count) {
+            self.emit(Operation::ClosureIsLocalByte(upvalue.is_local));
+            self.emit(Operation::ClosureIndexByte(upvalue.index));
         }
     }
 
@@ -237,7 +224,7 @@ impl<'source> Parser<'source> {
         if self.r#match(TokenKind::Equal) {
             self.expression();
         } else {
-            self.emit_operation(Operation::Nil);
+            self.emit(Operation::Nil);
         }
         self.consume(TokenKind::Semicolon, "Expect ';' after value.");
         self.define_variable(constant_index);
@@ -246,24 +233,24 @@ impl<'source> Parser<'source> {
     fn parse_variable(&mut self, error_message: &str) -> Option<u8> {
         self.consume(TokenKind::Identifier, error_message);
         self.declare_variable();
-        if self.current_scope_depth() > 0 {
+        if self.context.scope_depth > 0 {
             // Return dummy variable since locals aren't looked up by name at runtime
             return Some(0);
         }
-        self.constant_identifier(&self.previous.lexeme)
+        self.constant_identifier(self.previous.lexeme)
     }
 
     fn declare_variable(&mut self) {
-        if self.current_scope_depth() == 0 {
+        if self.context.scope_depth == 0 {
             return;
         }
         let variable_name = self.previous.lexeme;
 
         // Detect clashing variable names in current scope (does not include shadowing, which is allowed).
         let mut has_match_name_error = false;
-        for local in self.compiler.context.locals.iter().rev() {
+        for local in self.context.locals.iter().rev() {
             if let Some(depth) = local.depth {
-                if depth < self.current_scope_depth() {
+                if depth < self.context.scope_depth {
                     break;
                 }
             }
@@ -278,14 +265,13 @@ impl<'source> Parser<'source> {
     }
 
     fn add_local(&mut self, name: &'source str) {
-        let locals_count = &mut self.compiler.context.locals_count;
+        let locals_count = &mut self.context.locals_count;
         if *locals_count == LOCALS_MAX_COUNT {
             self.error("Too many local variables in function.");
             return;
         }
-
         // "Declare" depth with None, it will later be initialized when variable defined
-        self.compiler.context.locals[*locals_count].name = name;
+        self.context.locals[*locals_count].name = name;
         *locals_count += 1;
     }
 
@@ -295,20 +281,18 @@ impl<'source> Parser<'source> {
     }
 
     fn define_variable(&mut self, constant_index: u8) {
-        if self.current_scope_depth() > 0 {
+        if self.context.scope_depth > 0 {
             self.mark_initialized();
             return;
         }
-        self.emit_operation(Operation::DefineGlobal(constant_index));
+        self.emit(Operation::DefineGlobal(constant_index));
     }
 
     fn mark_initialized(&mut self) {
-        if self.current_scope_depth() == 0 {
+        if self.context.scope_depth == 0 {
             return;
         }
-        self.compiler.context.locals[self.compiler.context.locals_count - 1].depth =
-            Some(self.current_scope_depth());
-        return;
+        self.context.locals[self.context.locals_count - 1].depth = Some(self.context.scope_depth);
     }
 
     fn statement(&mut self) {
@@ -332,32 +316,30 @@ impl<'source> Parser<'source> {
     }
 
     fn begin_scope(&mut self) {
-        *self.current_scope_depth_mut() += 1;
+        self.context.scope_depth += 1;
     }
 
     fn end_scope(&mut self) {
-        *self.current_scope_depth_mut() -= 1;
-        for index in (0..self.compiler.context.locals_count).rev() {
-            let local = &self.compiler.context.locals[index];
+        self.context.scope_depth -= 1;
+        for index in (0..self.context.locals_count).rev() {
+            let local = &self.context.locals[index];
             if let Some(depth) = local.depth {
-                if depth <= self.current_scope_depth() {
+                if depth <= self.context.scope_depth {
                     break;
                 }
             }
-            if self.compiler.context.locals[self.compiler.context.locals_count - 1].is_captured {
-                self.emit_operation(Operation::CloseUpvalue);
+            if self.context.locals[self.context.locals_count - 1].is_captured {
+                self.emit(Operation::CloseUpvalue);
             } else {
-                self.emit_operation(Operation::Pop);
+                self.emit(Operation::Pop);
             }
-            self.compiler.context.locals_count -= 1;
-            self.compiler.context.locals[self.compiler.context.locals_count].reset();
+            self.context.locals_count -= 1;
+            self.context.locals[self.context.locals_count].reset();
         }
     }
 
     fn block(&mut self) {
-        while !self.check_current_token(TokenKind::RightBrace)
-            && !self.check_current_token(TokenKind::Eof)
-        {
+        while !self.check(TokenKind::RightBrace) && !self.check(TokenKind::Eof) {
             self.declaration();
         }
         self.consume(TokenKind::RightBrace, "Expect '}' after block.");
@@ -366,7 +348,7 @@ impl<'source> Parser<'source> {
     fn print_statement(&mut self) {
         self.expression();
         self.consume(TokenKind::Semicolon, "Expect ';' after value.");
-        self.emit_operation(Operation::Print);
+        self.emit(Operation::Print);
     }
 
     fn if_statement(&mut self) {
@@ -374,14 +356,14 @@ impl<'source> Parser<'source> {
         self.expression();
         self.consume(TokenKind::RightParen, "Expect ')' after condition.");
 
-        self.emit_operation(Operation::JumpIfFalse(JUMP_MAX_COUNT));
+        self.emit(Operation::JumpIfFalse(JUMP_MAX_COUNT));
         let num_operations_if = self.current_chunk().code.len();
-        self.emit_operation(Operation::Pop);
+        self.emit(Operation::Pop);
         self.statement();
-        self.emit_operation(Operation::Jump(JUMP_MAX_COUNT));
+        self.emit(Operation::Jump(JUMP_MAX_COUNT));
         let num_operations_else = self.current_chunk().code.len();
         self.patch_jump(num_operations_if);
-        self.emit_operation(Operation::Pop);
+        self.emit(Operation::Pop);
         if self.r#match(TokenKind::Else) {
             self.statement();
         }
@@ -389,7 +371,7 @@ impl<'source> Parser<'source> {
     }
 
     fn return_statement(&mut self) {
-        let current_function_kind = self.compiler.context.function.kind;
+        let current_function_kind = self.context.function.kind;
         if current_function_kind == FunctionKind::Script {
             self.error("Can't return from top-level code.");
             return;
@@ -402,7 +384,7 @@ impl<'source> Parser<'source> {
             }
             self.expression();
             self.consume(TokenKind::Semicolon, "Expect ';' after return value.");
-            self.emit_operation(Operation::Return);
+            self.emit(Operation::Return);
         }
     }
 
@@ -422,7 +404,6 @@ impl<'source> Parser<'source> {
             }
             _ => {
                 self.error("Could not find reference to added jump_if_false operation.");
-                return;
             }
         }
     }
@@ -433,14 +414,14 @@ impl<'source> Parser<'source> {
         self.expression();
         self.consume(TokenKind::RightParen, "Expect ')' after condition.");
 
-        self.emit_operation(Operation::JumpIfFalse(JUMP_MAX_COUNT));
+        self.emit(Operation::JumpIfFalse(JUMP_MAX_COUNT));
         let num_operations_exit = self.current_chunk().code.len();
-        self.emit_operation(Operation::Pop);
+        self.emit(Operation::Pop);
         self.statement();
         self.emit_loop(num_operations_loop_start);
 
         self.patch_jump(num_operations_exit);
-        self.emit_operation(Operation::Pop);
+        self.emit(Operation::Pop);
     }
 
     fn for_statement(&mut self) {
@@ -461,18 +442,18 @@ impl<'source> Parser<'source> {
             self.expression();
             self.consume(TokenKind::Semicolon, "Expect ';' after loop condition.");
             // Jump out of the loop if the condition is false.
-            self.emit_operation(Operation::JumpIfFalse(JUMP_MAX_COUNT));
+            self.emit(Operation::JumpIfFalse(JUMP_MAX_COUNT));
             num_operations_exit = Some(self.current_chunk().code.len());
-            self.emit_operation(Operation::Pop);
+            self.emit(Operation::Pop);
         }
 
         // Incremenet clause.
         if !self.r#match(TokenKind::RightParen) {
-            self.emit_operation(Operation::Jump(JUMP_MAX_COUNT));
+            self.emit(Operation::Jump(JUMP_MAX_COUNT));
             let num_operations_jump = self.current_chunk().code.len();
             let num_operations_increment_start = self.current_chunk().code.len();
             self.expression();
-            self.emit_operation(Operation::Pop);
+            self.emit(Operation::Pop);
             self.consume(TokenKind::RightParen, "Expect ')' after for clauses.");
             self.emit_loop(num_operations_loop_start);
             num_operations_loop_start = num_operations_increment_start;
@@ -485,7 +466,7 @@ impl<'source> Parser<'source> {
         // Patch exit loop jump from condition clause.
         if let Some(num_operations_exit) = num_operations_exit {
             self.patch_jump(num_operations_exit);
-            self.emit_operation(Operation::Pop);
+            self.emit(Operation::Pop);
         }
         self.end_scope();
     }
@@ -496,13 +477,13 @@ impl<'source> Parser<'source> {
             self.error("Loop body too large.");
             return;
         }
-        self.emit_operation(Operation::Loop(offset as u8));
+        self.emit(Operation::Loop(offset as u8));
     }
 
     fn expression_statement(&mut self) {
         self.expression();
         self.consume(TokenKind::Semicolon, "Expect ';' after expression.");
-        self.emit_operation(Operation::Pop);
+        self.emit(Operation::Pop);
     }
 
     fn advance(&mut self) {
@@ -524,14 +505,14 @@ impl<'source> Parser<'source> {
         self.error_at_current(message);
     }
 
-    fn emit_operation(&mut self, operation: Operation) {
+    fn emit(&mut self, operation: Operation) {
         let line = self.previous.line;
         self.current_chunk_mut().write(operation, line);
     }
 
     fn emit_constant(&mut self, value: Value) {
         if let Some(constant_index) = self.current_chunk_mut().add_constant(value) {
-            self.emit_operation(Operation::Constant(constant_index));
+            self.emit(Operation::Constant(constant_index));
         } else {
             self.error("Too many constants in one chunk.");
         }
@@ -563,22 +544,21 @@ impl<'source> Parser<'source> {
 
     fn end_compiler(&mut self) -> Option<(FunctionObject, [Upvalue; UPVALUES_MAX_COUNT])> {
         self.emit_return();
-        #[cfg(feature = "debug_print_code")]
+        #[cfg(feature = "debug_trace")]
         self.compiler.debug();
 
-        self.compiler.context.enclosing.take().map(|parent| {
-            let context: CompilerContext<'source> =
-                std::mem::replace(&mut self.compiler.context, *parent);
+        self.context.enclosing.take().map(|parent| {
+            let context: CompilerContext<'source> = std::mem::replace(&mut self.context, *parent);
             (context.function, context.upvalues)
         })
     }
 
     fn emit_return(&mut self) {
-        match self.compiler.context.function.kind {
-            FunctionKind::Initializer => self.emit_operation(Operation::GetLocal(0)),
-            _ => self.emit_operation(Operation::Nil),
+        match self.context.function.kind {
+            FunctionKind::Initializer => self.emit(Operation::GetLocal(0)),
+            _ => self.emit(Operation::Nil),
         };
-        self.emit_operation(Operation::Return);
+        self.emit(Operation::Return);
     }
 
     fn synchronise(&mut self) {
@@ -651,6 +631,15 @@ impl<'source> CompilerContext<'source> {
             upvalues,
         }
     }
+
+    #[cfg(feature = "debug_trace")]
+    fn debug(&self) {
+        let name = match self.function.name.is_empty() {
+            true => "<script>".into(),
+            false => self.function.name.clone(),
+        };
+        self.context.function.chunk.disassemble(&name);
+    }
 }
 
 pub struct ClassCompiler {
@@ -664,27 +653,5 @@ impl ClassCompiler {
             enclosing,
             has_superclass: false,
         }
-    }
-}
-
-pub struct Compiler<'source> {
-    context: CompilerContext<'source>,
-}
-
-impl<'source> Compiler<'source> {
-    pub fn new() -> Self {
-        let compiler_context = CompilerContext::new("", FunctionKind::Script);
-        Self {
-            context: compiler_context,
-        }
-    }
-
-    #[cfg(feature = "debug_print_code")]
-    fn debug(&self) {
-        let name = match self.context.function.name.is_empty() {
-            true => "<script>".into(),
-            false => self.context.function.name.clone(),
-        };
-        self.context.function.chunk.disassemble(&name);
     }
 }

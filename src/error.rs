@@ -4,8 +4,6 @@ pub type InterpretResult<T> = std::result::Result<T, RuntimeError>;
 
 #[derive(Debug, Error)]
 pub enum RuntimeError {
-    #[error("Compile error.")] // TODO: remove
-    CompileError,
     #[error("Index out of bounds.")]
     OutOfBounds,
     #[error("Attempted to read from uninitialized stack slot.")]
@@ -48,6 +46,8 @@ pub enum RuntimeError {
     ConstantSuperclassNotFound,
     #[error("Invalid field reference.")]
     InstanceReferenceInvalid,
+    #[error("Value on top of stack is not an instance")]
+    NoInstanceOnStack,
     #[error("Invalid closure opcodes")]
-    ClosureOpcode, // TODO: can be removed with more trust in code?
+    ClosureOpcode,
 }

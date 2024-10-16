@@ -1,3 +1,4 @@
+use crate::common::print_function;
 use crate::error::{InterpretResult, RuntimeError};
 use std::cell::RefCell;
 use std::fmt::{Debug, Display};
@@ -93,13 +94,6 @@ impl PartialEq for Value {
     }
 }
 
-fn print_function(name: &str) -> String {
-    match name.is_empty() {
-        true => "<script>".into(),
-        false => format!("<fn {}>", name),
-    }
-}
-
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -174,14 +168,14 @@ impl Value {
     pub fn is_greater(&self, rhs: Self) -> InterpretResult<bool> {
         match (self, rhs) {
             (Self::Number(a), Self::Number(b)) => Ok(*a > b),
-            _ => return Err(RuntimeError::ValueNumberOnlyOperation),
+            _ => Err(RuntimeError::ValueNumberOnlyOperation),
         }
     }
 
     pub fn is_less(&self, rhs: Self) -> InterpretResult<bool> {
         match (self, rhs) {
             (Self::Number(a), Self::Number(b)) => Ok(*a < b),
-            _ => return Err(RuntimeError::ValueNumberOnlyOperation),
+            _ => Err(RuntimeError::ValueNumberOnlyOperation),
         }
     }
 }

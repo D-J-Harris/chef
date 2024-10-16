@@ -4,13 +4,13 @@ use std::u8;
 use crate::{
     chunk::Operation,
     common::{JUMP_MAX_COUNT, SUPER_STRING, UPVALUES_MAX_COUNT},
-    scanner::token::TokenKind,
+    scanner::TokenKind,
     value::Value,
 };
 
-use super::{CompilerContext, Parser};
+use super::{Compiler, CompilerContext};
 
-impl Parser<'_> {
+impl Compiler<'_> {
     pub fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
         let prefix_rule = Precedence::get_rule(self.previous.kind).prefix;
@@ -67,8 +67,8 @@ impl Parser<'_> {
         let operator_kind = self.previous.kind;
         self.parse_precedence(Precedence::Unary);
         match operator_kind {
-            TokenKind::Minus => self.emit_operation(Operation::Negate),
-            TokenKind::Bang => self.emit_operation(Operation::Not),
+            TokenKind::Minus => self.emit(Operation::Negate),
+            TokenKind::Bang => self.emit(Operation::Not),
             _ => unreachable!(),
         }
     }
@@ -78,24 +78,24 @@ impl Parser<'_> {
         let parse_rule = Precedence::get_rule(operator_kind);
         self.parse_precedence(parse_rule.precedence.next());
         match operator_kind {
-            TokenKind::Plus => self.emit_operation(Operation::Add),
-            TokenKind::Minus => self.emit_operation(Operation::Subtract),
-            TokenKind::Star => self.emit_operation(Operation::Multiply),
-            TokenKind::Slash => self.emit_operation(Operation::Divide),
-            TokenKind::EqualEqual => self.emit_operation(Operation::Equal),
-            TokenKind::Greater => self.emit_operation(Operation::Greater),
-            TokenKind::Less => self.emit_operation(Operation::Less),
+            TokenKind::Plus => self.emit(Operation::Add),
+            TokenKind::Minus => self.emit(Operation::Subtract),
+            TokenKind::Star => self.emit(Operation::Multiply),
+            TokenKind::Slash => self.emit(Operation::Divide),
+            TokenKind::EqualEqual => self.emit(Operation::Equal),
+            TokenKind::Greater => self.emit(Operation::Greater),
+            TokenKind::Less => self.emit(Operation::Less),
             TokenKind::BangEqual => {
-                self.emit_operation(Operation::Equal);
-                self.emit_operation(Operation::Not);
+                self.emit(Operation::Equal);
+                self.emit(Operation::Not);
             }
             TokenKind::GreaterEqual => {
-                self.emit_operation(Operation::Less);
-                self.emit_operation(Operation::Not);
+                self.emit(Operation::Less);
+                self.emit(Operation::Not);
             }
             TokenKind::LessEqual => {
-                self.emit_operation(Operation::Greater);
-                self.emit_operation(Operation::Not);
+                self.emit(Operation::Greater);
+                self.emit(Operation::Not);
             }
             _ => unreachable!(),
         }
@@ -111,9 +111,9 @@ impl Parser<'_> {
 
     fn literal(&mut self) {
         match self.previous.kind {
-            TokenKind::Nil => self.emit_operation(Operation::Nil),
-            TokenKind::True => self.emit_operation(Operation::True),
-            TokenKind::False => self.emit_operation(Operation::False),
+            TokenKind::Nil => self.emit(Operation::Nil),
+            TokenKind::True => self.emit(Operation::True),
+            TokenKind::False => self.emit(Operation::False),
             _ => unreachable!(),
         }
     }
@@ -129,13 +129,12 @@ impl Parser<'_> {
     }
 
     pub fn named_variable(&mut self, token_name: &str, can_assign: bool) {
-        let (get_operation, set_operation) = match resolve_local(&self.compiler.context, token_name)
-        {
+        let (get_operation, set_operation) = match resolve_local(&self.context, token_name) {
             Ok(Some(constant_index)) => (
                 Operation::GetLocal(constant_index),
                 Operation::SetLocal(constant_index),
             ),
-            Ok(None) => match resolve_upvalue(&mut self.compiler.context, token_name) {
+            Ok(None) => match resolve_upvalue(&mut self.context, token_name) {
                 Ok(Some(upvalue_index)) => (
                     Operation::GetUpvalue(upvalue_index),
                     Operation::SetUpvalue(upvalue_index),
@@ -160,28 +159,28 @@ impl Parser<'_> {
 
         if can_assign && self.r#match(TokenKind::Equal) {
             self.expression();
-            self.emit_operation(set_operation);
+            self.emit(set_operation);
         } else {
-            self.emit_operation(get_operation);
+            self.emit(get_operation);
         }
     }
 
     fn and(&mut self) {
-        self.emit_operation(Operation::JumpIfFalse(JUMP_MAX_COUNT));
+        self.emit(Operation::JumpIfFalse(JUMP_MAX_COUNT));
         let operations_before_and = self.current_chunk().code.len();
-        self.emit_operation(Operation::Pop);
+        self.emit(Operation::Pop);
         self.parse_precedence(Precedence::And);
         self.patch_jump(operations_before_and);
     }
 
     fn or(&mut self) {
-        self.emit_operation(Operation::JumpIfFalse(JUMP_MAX_COUNT));
+        self.emit(Operation::JumpIfFalse(JUMP_MAX_COUNT));
         let operations_before_else_jump = self.current_chunk().code.len();
-        self.emit_operation(Operation::Jump(JUMP_MAX_COUNT));
+        self.emit(Operation::Jump(JUMP_MAX_COUNT));
         let operations_before_end_jump = self.current_chunk().code.len();
 
         self.patch_jump(operations_before_else_jump);
-        self.emit_operation(Operation::Pop);
+        self.emit(Operation::Pop);
         self.parse_precedence(Precedence::Or);
         self.patch_jump(operations_before_end_jump);
     }
@@ -191,12 +190,12 @@ impl Parser<'_> {
             self.error("Can't have more than 255 arguments.");
             return;
         };
-        self.emit_operation(Operation::Call(argument_count));
+        self.emit(Operation::Call(argument_count));
     }
 
     fn argument_list(&mut self) -> Option<u8> {
         let mut argument_count: u8 = 0;
-        if !self.check_current_token(TokenKind::RightParen) {
+        if !self.check(TokenKind::RightParen) {
             loop {
                 self.expression();
                 argument_count = match argument_count.checked_add(1) {
@@ -215,21 +214,21 @@ impl Parser<'_> {
 
     fn dot(&mut self, can_assign: bool) {
         self.consume(TokenKind::Identifier, "Expect property name after '.'.");
-        let Some(name_index) = self.constant_identifier(&self.previous.lexeme) else {
+        let Some(name_index) = self.constant_identifier(self.previous.lexeme) else {
             self.error(&format!("No constant with name {}", self.previous.lexeme));
             return;
         };
         if can_assign && self.r#match(TokenKind::Equal) {
             self.expression();
-            self.emit_operation(Operation::SetProperty(name_index));
+            self.emit(Operation::SetProperty(name_index));
         } else if self.r#match(TokenKind::LeftParen) {
             let Some(argument_count) = self.argument_list() else {
                 self.error("Can't have more than 255 arguments.");
                 return;
             };
-            self.emit_operation(Operation::Invoke(name_index, argument_count));
+            self.emit(Operation::Invoke(name_index, argument_count));
         } else {
-            self.emit_operation(Operation::GetProperty(name_index));
+            self.emit(Operation::GetProperty(name_index));
         }
     }
 
@@ -263,10 +262,10 @@ impl Parser<'_> {
                 return;
             };
             self.named_variable(SUPER_STRING, false);
-            self.emit_operation(Operation::SuperInvoke(name_index, argument_count));
+            self.emit(Operation::SuperInvoke(name_index, argument_count));
         } else {
             self.named_variable(SUPER_STRING, false);
-            self.emit_operation(Operation::GetSuper(name_index));
+            self.emit(Operation::GetSuper(name_index));
         }
     }
 }
@@ -281,7 +280,7 @@ fn resolve_local(compiler: &CompilerContext, token_name: &str) -> Result<Option<
         }
     }
     // Assume global variable
-    return Ok(None);
+    Ok(None)
 }
 
 fn resolve_upvalue(compiler: &mut CompilerContext, token_name: &str) -> Result<Option<u8>, String> {
@@ -311,7 +310,6 @@ pub fn add_upvalue(
     for i in 0..*upvalue_count {
         let upvalue = &mut compiler.upvalues[i];
         if upvalue.index == index && upvalue.is_local == is_local {
-            // TODO: amend max sizes so counts are in u8 and max count is 255 not 256
             // Safety: we know i < 256
             return Ok(Some(i as u8));
         }
