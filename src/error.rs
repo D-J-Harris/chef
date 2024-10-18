@@ -8,12 +8,6 @@ pub enum RuntimeError {
     Compile,
     #[error("Index out of bounds.")]
     OutOfBounds,
-    #[error("Attempted to read from uninitialized stack slot.")]
-    UninitializedStackValue,
-    #[error("Attempted to read from uninitialized constant slot.")]
-    UninitializedConstantValue,
-    #[error("Attempted to read from uninitialized constant slot.")]
-    UninitializedUpvalue,
     #[error("Stack overflow.")]
     StackOverflow,
     #[error("Only instances have properties.")]
@@ -48,8 +42,6 @@ pub enum RuntimeError {
     ConstantClassNotFound,
     #[error("Superclass must be a class.")]
     ConstantSuperclassNotFound,
-    #[error("Invalid field reference.")]
-    InstanceReferenceInvalid,
     #[error("Value on top of stack is not an instance")]
     NoInstanceOnStack,
     #[error("Invalid closure opcodes")]

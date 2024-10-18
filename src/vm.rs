@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::ops::Deref;
 
 use gc_arena::lock::RefLock;
-use gc_arena::{Collect, Gc, Mutation};
+use gc_arena::{Collect, Collection, Gc, Mutation};
 
 use crate::chunk::Operation;
 use crate::common::{CALL_FRAMES_MAX_COUNT, INIT_STRING, STACK_VALUES_MAX_COUNT};
 use crate::error::{InterpretResult, RuntimeError};
-use crate::native_functions::declare_native_functions;
+use crate::native_functions::current_time_s;
 use crate::objects::{
     BoundMethod, ClassObject, ClosureObject, FunctionObject, InstanceObject, UpvalueObject,
 };
@@ -21,7 +21,7 @@ pub struct CallFrame<'gc> {
     frame_ip: usize,
 }
 
-impl CallFrame<'_> {
+impl<'gc> CallFrame<'gc> {
     fn runtime_error_print(&self) {
         let function = &self.closure.function;
         let line = function.chunk.lines[self.frame_ip - 1];
@@ -32,8 +32,6 @@ impl CallFrame<'_> {
     }
 }
 
-#[derive(Collect)]
-#[collect(no_drop)]
 pub struct State<'gc> {
     mc: &'gc Mutation<'gc>,
     frames: Vec<CallFrame<'gc>>,
@@ -43,10 +41,27 @@ pub struct State<'gc> {
     pub(super) identifiers: HashMap<Gc<'gc, String>, Value<'gc>>,
 }
 
+unsafe impl<'gc> Collect for State<'gc> {
+    fn needs_trace() -> bool
+    where
+        Self: Sized,
+    {
+        true
+    }
+
+    fn trace(&self, cc: &Collection) {
+        self.frames.trace(cc);
+        self.stack.trace(cc);
+        self.stack_top.trace(cc);
+        self.upvalues.trace(cc);
+        self.identifiers.trace(cc);
+    }
+}
+
 impl<'gc> State<'gc> {
     pub fn new(mc: &'gc Mutation<'gc>) -> Self {
         let identifiers = HashMap::new();
-        declare_native_functions(mc, &identifiers);
+
         Self {
             mc,
             frames: Vec::with_capacity(CALL_FRAMES_MAX_COUNT),
@@ -55,6 +70,13 @@ impl<'gc> State<'gc> {
             upvalues: Vec::new(),
             identifiers,
         }
+    }
+
+    pub fn declare_native_functions(&mut self) {
+        let name = Gc::new(self.mc, "clock".into());
+        let native_function = current_time_s::<'gc>;
+        let function = Value::NativeFunction(native_function);
+        self.identifiers.insert(name, function);
     }
 
     fn reset(&mut self) {
@@ -125,7 +147,7 @@ impl<'gc> State<'gc> {
             #[cfg(feature = "debug_trace")]
             current_function
                 .chunk
-                .disassemble_instruction(current_frame.ip - 1);
+                .disassemble_instruction(current_frame.frame_ip - 1);
 
             match &operation {
                 Operation::Return => {
@@ -156,8 +178,17 @@ impl<'gc> State<'gc> {
                 }
                 Operation::Add => {
                     let (b, mut a) = (self.pop(), self.pop());
-                    a.add_assign(b)?;
-                    self.push(a)?
+                    match (a, b) {
+                        (Value::String(a), Value::String(b)) => {
+                            let mut root = a.deref().clone();
+                            root.push_str(&b);
+                            self.push(Value::String(Gc::new(self.mc, root)))?;
+                        }
+                        _ => {
+                            a.add_assign(b)?;
+                            self.push(a)?
+                        }
+                    }
                 }
                 Operation::Subtract => {
                     let (b, mut a) = (self.pop(), self.pop());
@@ -297,8 +328,8 @@ impl<'gc> State<'gc> {
                     let upvalue = current_closure.upvalues[slot];
                     let slot = match *upvalue.borrow_mut(self.mc) {
                         UpvalueObject::Open(value_slot) => value_slot,
-                        UpvalueObject::Closed(mut value) => {
-                            value = *replacement_value;
+                        UpvalueObject::Closed(mut _value) => {
+                            _value = *replacement_value;
                             continue;
                         }
                     };
@@ -336,7 +367,7 @@ impl<'gc> State<'gc> {
                     };
                 }
                 Operation::SetProperty(index) => {
-                    let Value::Instance(instance) = self.peek(self.current_stack_index() - 1)?
+                    let Value::Instance(instance) = *self.peek(self.current_stack_index() - 1)?
                     else {
                         return Err(RuntimeError::InstanceSetProperty);
                     };
@@ -407,12 +438,13 @@ impl<'gc> State<'gc> {
 
     fn invoke(&mut self, method: Gc<'gc, String>, argument_count: u8) -> InterpretResult<()> {
         let Value::Instance(receiver) =
-            self.peek(self.current_stack_index() - argument_count as usize)?
+            *self.peek(self.current_stack_index() - argument_count as usize)?
         else {
             return Err(RuntimeError::InstanceInvoke);
         };
         if let Some(field_value) = receiver.borrow().fields.get(&method) {
-            self.stack[self.current_stack_index() - argument_count as usize] = *field_value;
+            let index = self.current_stack_index() - argument_count as usize;
+            self.stack[index] = *field_value;
             self.call_value(argument_count)?;
         }
         self.invoke_from_class(receiver.borrow().class, method, argument_count)
@@ -420,16 +452,16 @@ impl<'gc> State<'gc> {
 
     fn invoke_from_class(
         &mut self,
-        class: Gc<RefLock<ClassObject>>,
+        class: Gc<'gc, RefLock<ClassObject<'gc>>>,
         name: Gc<'gc, String>,
         argument_count: u8,
     ) -> InterpretResult<()> {
-        let class_borrow = class.borrow();
-        let method = class_borrow
+        let method = *class
+            .borrow()
             .methods
             .get(&name)
             .ok_or(RuntimeError::UndefinedProperty(name.deref().clone()))?;
-        self.call(*method, argument_count)
+        self.call(method, argument_count)
     }
 
     fn define_method(&mut self, name: Gc<'gc, String>) -> InterpretResult<()> {
@@ -444,7 +476,7 @@ impl<'gc> State<'gc> {
     }
 
     fn close_upvalues(&mut self, from: usize) -> InterpretResult<()> {
-        for upvalue in self.upvalues {
+        for upvalue in self.upvalues.iter() {
             let slot = match *upvalue.borrow() {
                 UpvalueObject::Open(value_slot) => match value_slot < from {
                     true => continue,
@@ -462,7 +494,7 @@ impl<'gc> State<'gc> {
         Ok(())
     }
 
-    fn capture_upvalue(&mut self, stack_index: usize) -> Gc<RefLock<UpvalueObject<'gc>>> {
+    fn capture_upvalue(&mut self, stack_index: usize) -> Gc<'gc, RefLock<UpvalueObject<'gc>>> {
         for upvalue in self.upvalues.iter().rev() {
             match *upvalue.borrow() {
                 UpvalueObject::Open(slot) => {
@@ -485,8 +517,7 @@ impl<'gc> State<'gc> {
             .clone();
         match callee {
             Value::NativeFunction(function) => {
-                let result =
-                    (function.function)(argument_count, self.stack_top - argument_count as usize);
+                let result = (function)(argument_count, self.stack_top - argument_count as usize);
                 self.stack_top -= argument_count as usize + 1;
                 self.push(result)
             }
@@ -494,7 +525,8 @@ impl<'gc> State<'gc> {
             Value::Class(class) => {
                 let instance = InstanceObject::new(class);
                 let instance = Value::Instance(Gc::new(self.mc, RefLock::new(instance)));
-                self.stack[self.current_stack_index() - argument_count as usize] = instance;
+                let index = self.current_stack_index() - argument_count as usize;
+                self.stack[index] = instance;
                 if let Some(closure) = class
                     .borrow()
                     .methods
@@ -510,8 +542,8 @@ impl<'gc> State<'gc> {
             }
             Value::BoundMethod(bound_method) => {
                 let closure = bound_method.closure;
-                self.stack[self.current_stack_index() - argument_count as usize] =
-                    Value::Instance(bound_method.receiver);
+                let index = self.current_stack_index() - argument_count as usize;
+                self.stack[index] = Value::Instance(bound_method.receiver);
                 self.call(closure, argument_count)
             }
             _ => Err(RuntimeError::InvalidCallee),
@@ -520,7 +552,7 @@ impl<'gc> State<'gc> {
 
     pub(super) fn call(
         &mut self,
-        closure: Gc<ClosureObject<'gc>>,
+        closure: Gc<'gc, ClosureObject<'gc>>,
         argument_count: u8,
     ) -> InterpretResult<()> {
         let function = closure.function;
@@ -538,7 +570,7 @@ impl<'gc> State<'gc> {
     fn bind_method(
         &mut self,
         name: Gc<'gc, String>,
-        class: Gc<RefLock<ClassObject>>,
+        class: Gc<'gc, RefLock<ClassObject<'gc>>>,
     ) -> InterpretResult<()> {
         let closure = *class
             .borrow()
@@ -554,7 +586,10 @@ impl<'gc> State<'gc> {
     }
 }
 
-fn read_constant<'a>(function: &FunctionObject, index: u8) -> InterpretResult<Value<'a>> {
+fn read_constant<'gc, 'a>(
+    function: &'a FunctionObject<'gc>,
+    index: u8,
+) -> InterpretResult<Value<'gc>> {
     let value = function
         .chunk
         .constants

@@ -27,19 +27,25 @@ pub struct Chef {
     state: Arena<Rootable![State<'_>]>,
 }
 
-impl Chef {
+impl<'source> Chef {
     fn new() -> Self {
-        let arena = Arena::<Rootable![State<'_>]>::new(|mc| State::new(mc));
+        let arena = Arena::<Rootable![State<'_>]>::new(|mc| {
+            let mut state = State::new(mc);
+            state.declare_native_functions();
+            state
+        });
+
         Self { state: arena }
     }
 
-    fn interpret<'source>(&mut self, source: &'source str) -> InterpretResult<()> {
+    fn interpret(&mut self, source: &'source str) -> InterpretResult<()> {
         const COLLECTOR_STEPS: u8 = 255;
 
         loop {
             match self.state.mutate_root(|mc, state| {
                 let compiler = Compiler::new(mc, source);
                 let function = compiler.compile().ok_or(RuntimeError::Compile)?;
+                let function = Gc::new(mc, function);
                 state.push(Value::Function(function))?;
                 let closure = Gc::new(mc, ClosureObject::new(function.upvalue_count, function));
                 state.call(closure, 0)?;

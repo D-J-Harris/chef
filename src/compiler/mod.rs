@@ -1,3 +1,4 @@
+use std::borrow::BorrowMut;
 use std::u8;
 
 use gc_arena::{Gc, Mutation};
@@ -28,7 +29,7 @@ pub struct Compiler<'source, 'gc> {
 }
 
 impl<'source, 'gc> Compiler<'source, 'gc> {
-    pub fn new(mc: &'gc Mutation, source: &'source str) -> Self {
+    pub fn new(mc: &'gc Mutation<'gc>, source: &'source str) -> Self {
         let initial_token = Token::new("", 1, TokenKind::Error);
         let context = CompilerContext::new("", FunctionKind::Script);
         Self {
@@ -43,15 +44,11 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         }
     }
 
-    fn current_chunk(&self) -> &Chunk {
+    fn current_chunk(&self) -> &Chunk<'gc> {
         &self.context.function.chunk
     }
 
-    fn current_chunk_mut(&mut self) -> &mut Chunk {
-        &mut self.context.function.chunk
-    }
-
-    pub fn compile(mut self) -> Option<Gc<'gc, FunctionObject<'source>>> {
+    pub fn compile(mut self) -> Option<FunctionObject<'gc>> {
         self.advance();
         while !self.r#match(TokenKind::Eof) {
             self.declaration();
@@ -61,7 +58,6 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             Some((f, _upvalues)) => f,
             None => self.context.function,
         };
-        let function = Gc::new(self.mc, function);
         match had_error {
             true => None,
             false => Some(function),
@@ -177,12 +173,12 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         self.consume(TokenKind::LeftParen, "Expect '(' after function name.");
         if !self.check(TokenKind::RightParen) {
             loop {
-                let current_arity = &mut self.context.function.arity;
-                if *current_arity == FUNCTION_ARITY_MAX_COUNT {
+                let mut _current_arity = self.context.function.borrow_mut().arity;
+                if _current_arity == FUNCTION_ARITY_MAX_COUNT {
                     self.error_at_current("Can't have more than 255 parameters.");
                     return;
                 }
-                *current_arity += 1;
+                _current_arity += 1;
                 let Some(constant_index) = self.parse_variable("Expect parameter name.") else {
                     self.error("Reached constant limit.");
                     return;
@@ -205,7 +201,9 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         let upvalue_count = function.upvalue_count;
 
         let Some(constant_index) = self
-            .current_chunk_mut()
+            .context
+            .function
+            .chunk
             .add_constant(Value::Function(Gc::new(self.mc, function)))
         else {
             self.error("Too many constants in one chunk.");
@@ -281,7 +279,10 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
 
     fn constant_identifier(&mut self, token_name: &str) -> Option<u8> {
         let token_name = Gc::new(self.mc, token_name.into());
-        self.current_chunk_mut()
+        self.context
+            .function
+            .borrow_mut()
+            .chunk
             .add_constant(Value::String(token_name))
     }
 
@@ -400,7 +401,10 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             return;
         }
         match self
-            .current_chunk_mut()
+            .context
+            .function
+            .borrow_mut()
+            .chunk
             .code
             .get_mut(num_operations_before - 1)
         {
@@ -512,11 +516,15 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
 
     fn emit(&mut self, operation: Operation) {
         let line = self.previous.line;
-        self.current_chunk_mut().write(operation, line);
+        self.context
+            .function
+            .borrow_mut()
+            .chunk
+            .write(operation, line);
     }
 
-    fn emit_constant(&mut self, value: Value) {
-        if let Some(constant_index) = self.current_chunk_mut().add_constant(value) {
+    fn emit_constant(&mut self, value: Value<'gc>) {
+        if let Some(constant_index) = self.context.function.chunk.add_constant(value) {
             self.emit(Operation::Constant(constant_index));
         } else {
             self.error("Too many constants in one chunk.");
@@ -547,7 +555,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         self.had_error = true;
     }
 
-    fn end_compiler(&mut self) -> Option<(FunctionObject, [Upvalue; UPVALUES_MAX_COUNT])> {
+    fn end_compiler(&mut self) -> Option<(FunctionObject<'gc>, [Upvalue; UPVALUES_MAX_COUNT])> {
         self.emit_return();
         #[cfg(feature = "debug_trace")]
         self.context.debug();
@@ -618,7 +626,7 @@ struct CompilerContext<'source, 'gc> {
     pub upvalues: [Upvalue; UPVALUES_MAX_COUNT],
 }
 
-impl<'source> CompilerContext<'source, '_> {
+impl<'source, 'gc> CompilerContext<'source, 'gc> {
     pub fn new(name: &str, function_kind: FunctionKind) -> Self {
         let function = FunctionObject::new(name.into(), function_kind);
         let upvalues = std::array::from_fn(|_| Upvalue::default());

@@ -7,11 +7,10 @@ use std::fmt::{Debug, Display};
 use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
 
 use crate::objects::{
-    BoundMethod, ClassObject, ClosureObject, FunctionObject, InstanceObject, NativeFunctionObject,
+    BoundMethod, ClassObject, ClosureObject, FunctionObject, InstanceObject, NativeFunction,
 };
 
-#[derive(Debug, Copy, Clone, Collect)]
-#[collect(no_drop)]
+#[derive(Debug, Copy, Clone)]
 pub enum Value<'gc> {
     Nil,
     Number(f64),
@@ -22,7 +21,28 @@ pub enum Value<'gc> {
     Function(Gc<'gc, FunctionObject<'gc>>),
     Class(Gc<'gc, RefLock<ClassObject<'gc>>>),
     Instance(Gc<'gc, RefLock<InstanceObject<'gc>>>),
-    NativeFunction(Gc<'gc, NativeFunctionObject<'gc>>),
+    NativeFunction(NativeFunction<'gc>),
+}
+
+unsafe impl<'gc> Collect for Value<'gc> {
+    fn needs_trace() -> bool
+    where
+        Self: Sized,
+    {
+        true
+    }
+
+    fn trace(&self, cc: &gc_arena::Collection) {
+        match self {
+            Value::String(s) => s.trace(cc),
+            Value::Function(fun) => fun.trace(cc),
+            Value::Closure(closure) => closure.trace(cc),
+            Value::Class(class) => class.trace(cc),
+            Value::Instance(instance) => instance.trace(cc),
+            Value::BoundMethod(bound) => bound.trace(cc),
+            _ => {}
+        }
+    }
 }
 
 impl PartialEq for Value<'_> {
@@ -60,7 +80,7 @@ impl Display for Value<'_> {
     }
 }
 
-impl Value<'_> {
+impl<'gc> Value<'gc> {
     pub fn negate(&mut self) -> InterpretResult<()> {
         match self {
             Self::Number(number) => *number = -*number,
@@ -72,7 +92,6 @@ impl Value<'_> {
     pub fn add_assign(&mut self, rhs: Self) -> InterpretResult<()> {
         match (self, rhs) {
             (Self::Number(a), Self::Number(b)) => a.add_assign(b),
-            (Self::String(a), Self::String(b)) => a.push_str(b.as_str()),
             _ => return Err(RuntimeError::ValueAddOperation),
         };
         Ok(())

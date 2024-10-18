@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Deref};
 
 use gc_arena::{lock::RefLock, Collect, Gc};
 
@@ -6,20 +6,7 @@ use crate::{chunk::Chunk, common::UPVALUES_MAX_COUNT, value::Value};
 
 pub type NativeFunction<'gc> = fn(arg_count: u8, ip: usize) -> Value<'gc>;
 
-#[derive(Debug, Collect)]
-#[collect(require_static)]
-pub struct NativeFunctionObject<'gc> {
-    pub name: &'static str,
-    pub function: NativeFunction<'gc>,
-}
-
-impl NativeFunctionObject<'_> {
-    pub fn new(name: &'static str, function: NativeFunction) -> Self {
-        Self { name, function }
-    }
-}
-
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum FunctionKind {
     Script,
     Function,
@@ -38,7 +25,7 @@ pub struct FunctionObject<'gc> {
     pub upvalue_count: usize,
 }
 
-impl FunctionObject<'_> {
+impl<'gc> FunctionObject<'gc> {
     pub fn new(name: String, kind: FunctionKind) -> Self {
         let chunk = Chunk::new();
         Self {
@@ -51,6 +38,13 @@ impl FunctionObject<'_> {
     }
 }
 
+impl<'gc> Deref for FunctionObject<'gc> {
+    type Target = Chunk<'gc>;
+    fn deref(&self) -> &Self::Target {
+        &self.chunk
+    }
+}
+
 #[derive(Debug, Collect)]
 #[collect(no_drop)]
 pub struct ClosureObject<'gc> {
@@ -59,8 +53,8 @@ pub struct ClosureObject<'gc> {
     pub upvalues: Vec<Gc<'gc, RefLock<UpvalueObject<'gc>>>>,
 }
 
-impl ClosureObject<'_> {
-    pub fn new(upvalue_count: usize, function: Gc<FunctionObject>) -> Self {
+impl<'gc> ClosureObject<'gc> {
+    pub fn new(upvalue_count: usize, function: Gc<'gc, FunctionObject<'gc>>) -> Self {
         Self {
             upvalue_count,
             function,
@@ -76,7 +70,7 @@ pub enum UpvalueObject<'gc> {
     Closed(Value<'gc>),
 }
 
-impl UpvalueObject<'_> {
+impl<'gc> UpvalueObject<'gc> {
     pub fn new(stack_index: usize) -> Self {
         Self::Open(stack_index)
     }
@@ -97,7 +91,7 @@ impl<'gc> ClassObject<'gc> {
         }
     }
 
-    pub fn add_method(&mut self, name: Gc<'gc, String>, value: Gc<ClosureObject>) {
+    pub fn add_method(&mut self, name: Gc<'gc, String>, value: Gc<'gc, ClosureObject<'gc>>) {
         self.methods.insert(name, value);
     }
 }
@@ -110,7 +104,7 @@ pub struct InstanceObject<'gc> {
 }
 
 impl<'gc> InstanceObject<'gc> {
-    pub fn new(class: Gc<RefLock<ClassObject<'gc>>>) -> Self {
+    pub fn new(class: Gc<'gc, RefLock<ClassObject<'gc>>>) -> Self {
         Self {
             class,
             fields: HashMap::new(),
@@ -127,14 +121,14 @@ pub struct BoundMethod<'gc> {
 
 impl<'gc> BoundMethod<'gc> {
     pub fn new(
-        receiver: Gc<RefLock<InstanceObject<'gc>>>,
-        closure: Gc<ClosureObject<'gc>>,
+        receiver: Gc<'gc, RefLock<InstanceObject<'gc>>>,
+        closure: Gc<'gc, ClosureObject<'gc>>,
     ) -> Self {
         Self { receiver, closure }
     }
 }
 
-impl PartialEq for BoundMethod<'_> {
+impl<'gc> PartialEq for BoundMethod<'gc> {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(&self.receiver, &other.receiver) && std::ptr::eq(&self.closure, &other.closure)
     }

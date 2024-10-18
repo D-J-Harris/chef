@@ -57,16 +57,14 @@ pub struct Chunk<'gc> {
     pub code: Vec<Operation>,
     pub lines: Vec<usize>,
     pub constants: Vec<Value<'gc>>,
-    pub constants_count: usize,
 }
 
-impl Chunk<'_> {
+impl<'gc> Chunk<'gc> {
     pub fn new() -> Self {
         Self {
             code: Vec::new(),
             lines: Vec::new(),
             constants: Vec::with_capacity(CONSTANTS_MAX_COUNT),
-            constants_count: 0,
         }
     }
 
@@ -77,19 +75,18 @@ impl Chunk<'_> {
 
     /// Add constant to [`Chunk`], and return its index.
     /// Returns `None` if adding a new constant would overflow the constants stack.
-    pub fn add_constant(&mut self, value: Value) -> Option<u8> {
-        if self.constants_count == U8_COUNT_USIZE {
+    pub fn add_constant(&mut self, value: Value<'gc>) -> Option<u8> {
+        if self.constants.len() == U8_COUNT_USIZE {
             return None;
         };
-        let index = self.constants_count;
-        self.constants[index] = value;
-        self.constants_count += 1;
+        let index = self.constants.len();
+        self.constants.push(value);
         Some(index as u8)
     }
 }
 
 #[cfg(feature = "debug_trace")]
-impl Chunk {
+impl Chunk<'_> {
     pub fn disassemble(&self, name: &str) {
         println!("====== Chunk {name} ======");
         for offset in 0..self.code.len() - 1 {
@@ -164,12 +161,7 @@ impl Chunk {
     }
 
     fn disassemble_constant_instruction(&self, operation: Operation, constant_index: usize) {
-        let constant = self
-            .constants
-            .get(constant_index)
-            .unwrap()
-            .as_ref()
-            .unwrap();
+        let constant = self.constants.get(constant_index).unwrap();
         println!("{operation:?} [constant: {constant}]");
     }
 
@@ -190,7 +182,7 @@ impl Chunk {
     }
 
     fn disassemble_invoke_instruction(&self, index: usize, argument_count: u8) {
-        let constant = self.constants.get(index).unwrap().as_ref().unwrap();
+        let constant = self.constants.get(index).unwrap();
         println!("Invoke ({argument_count} args) [constant: {constant}]");
     }
 }
