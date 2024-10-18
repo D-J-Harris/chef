@@ -77,8 +77,7 @@ The tests differ to the original test suite in the following ways:
 
 ## Copyright Notice
 
-[Test and benchmark files](./tests/suite/) from [Robert Nystrom](https://github.com/munificent/craftinginterpreters) (MIT licensed)
+Codebases and references all MIT licensed, including [this repository](./LICENSE)
 
-[Test suite runner code](./tests/run.rs) inspired from [Manuel Cerón](https://github.com/ceronman/loxido/tree/unsafe) (MIT licensed)
-
-This code is [MIT licensed](./LICENSE)
+- [Test and benchmark files](./tests/suite/) adapted from the [book](https://github.com/munificent/craftinginterpreters)
+- [Test suite runner code](./tests/run.rs) inspired from [loxido](https://github.com/ceronman/loxido/tree/unsafe)

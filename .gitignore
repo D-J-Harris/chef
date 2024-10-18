@@ -41,3 +41,4 @@ rust-project.json
 .DS_STORE
 NOTES.md
 local.lox
+bins/
