@@ -1,6 +1,8 @@
 use std::borrow::BorrowMut;
 use std::u8;
 
+use gc_arena::Gc;
+
 use crate::{
     chunk::Operation,
     common::{JUMP_MAX_COUNT, SUPER_STRING, UPVALUES_MAX_COUNT},
@@ -10,7 +12,7 @@ use crate::{
 
 use super::{Compiler, CompilerContext};
 
-impl Compiler<'_> {
+impl Compiler<'_, '_> {
     pub fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
         let prefix_rule = Precedence::get_rule(self.previous.kind).prefix;
@@ -121,7 +123,8 @@ impl Compiler<'_> {
     fn string(&mut self) {
         let lexeme_len = self.previous.lexeme.len();
         let constant = &self.previous.lexeme[1..{ lexeme_len - 1 }];
-        self.emit_constant(Value::String(constant.into()));
+        let constant = Gc::new(self.mc, constant.into());
+        self.emit_constant(Value::String(constant));
     }
 
     pub fn variable(&mut self, can_assign: bool) {

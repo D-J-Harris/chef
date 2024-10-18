@@ -1,29 +1,25 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
-use crate::{
-    chunk::Chunk,
-    common::UPVALUES_MAX_COUNT,
-    value::{FieldValue, Value},
-};
+use gc_arena::{lock::RefLock, Collect, Gc};
 
-pub type NativeFunction = fn(arg_count: u8, ip: usize) -> Value;
+use crate::{chunk::Chunk, common::UPVALUES_MAX_COUNT, value::Value};
 
-#[derive(Debug)]
-pub struct NativeFunctionObject {
-    pub name: String,
-    pub function: NativeFunction,
+pub type NativeFunction<'gc> = fn(arg_count: u8, ip: usize) -> Value<'gc>;
+
+#[derive(Debug, Collect)]
+#[collect(require_static)]
+pub struct NativeFunctionObject<'gc> {
+    pub name: &'static str,
+    pub function: NativeFunction<'gc>,
 }
 
-impl NativeFunctionObject {
-    pub fn new(name: &str, function: NativeFunction) -> Self {
-        Self {
-            name: name.into(),
-            function,
-        }
+impl NativeFunctionObject<'_> {
+    pub fn new(name: &'static str, function: NativeFunction) -> Self {
+        Self { name, function }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum FunctionKind {
     Script,
     Function,
@@ -31,16 +27,18 @@ pub enum FunctionKind {
     Initializer,
 }
 
-#[derive(Debug)]
-pub struct FunctionObject {
+#[derive(Debug, Collect)]
+#[collect(no_drop)]
+pub struct FunctionObject<'gc> {
     pub arity: u8,
-    pub chunk: Chunk,
+    pub chunk: Chunk<'gc>,
     pub name: String,
+    #[collect(require_static)]
     pub kind: FunctionKind,
     pub upvalue_count: usize,
 }
 
-impl FunctionObject {
+impl FunctionObject<'_> {
     pub fn new(name: String, kind: FunctionKind) -> Self {
         let chunk = Chunk::new();
         Self {
@@ -53,43 +51,45 @@ impl FunctionObject {
     }
 }
 
-#[derive(Debug)]
-pub struct ClosureObject {
+#[derive(Debug, Collect)]
+#[collect(no_drop)]
+pub struct ClosureObject<'gc> {
     pub upvalue_count: usize,
-    pub function: Rc<FunctionObject>,
-    pub upvalues: [Option<Rc<RefCell<UpvalueObject>>>; UPVALUES_MAX_COUNT],
+    pub function: Gc<'gc, FunctionObject<'gc>>,
+    pub upvalues: Vec<Gc<'gc, RefLock<UpvalueObject<'gc>>>>,
 }
 
-const UPVALUE_DEFAULT: Option<Rc<RefCell<UpvalueObject>>> = None;
-impl ClosureObject {
-    pub fn new(upvalue_count: usize, function: Rc<FunctionObject>) -> Self {
+impl ClosureObject<'_> {
+    pub fn new(upvalue_count: usize, function: Gc<FunctionObject>) -> Self {
         Self {
             upvalue_count,
             function,
-            upvalues: [UPVALUE_DEFAULT; UPVALUES_MAX_COUNT],
+            upvalues: Vec::with_capacity(UPVALUES_MAX_COUNT),
         }
     }
 }
 
-#[derive(Debug)]
-pub enum UpvalueObject {
+#[derive(Debug, Collect)]
+#[collect(no_drop)]
+pub enum UpvalueObject<'gc> {
     Open(usize),
-    Closed(Value),
+    Closed(Value<'gc>),
 }
 
-impl UpvalueObject {
-    pub fn new(value_slot: usize) -> Self {
-        Self::Open(value_slot)
+impl UpvalueObject<'_> {
+    pub fn new(stack_index: usize) -> Self {
+        Self::Open(stack_index)
     }
 }
 
-#[derive(Debug)]
-pub struct ClassObject {
+#[derive(Debug, Collect)]
+#[collect(no_drop)]
+pub struct ClassObject<'gc> {
     pub name: String,
-    pub methods: HashMap<String, Rc<ClosureObject>>,
+    pub methods: HashMap<Gc<'gc, String>, Gc<'gc, ClosureObject<'gc>>>,
 }
 
-impl ClassObject {
+impl<'gc> ClassObject<'gc> {
     pub fn new(name: &str) -> Self {
         Self {
             name: name.into(),
@@ -97,19 +97,20 @@ impl ClassObject {
         }
     }
 
-    pub fn add_method(&mut self, name: String, value: Rc<ClosureObject>) {
+    pub fn add_method(&mut self, name: Gc<'gc, String>, value: Gc<ClosureObject>) {
         self.methods.insert(name, value);
     }
 }
 
-#[derive(Debug)]
-pub struct InstanceObject {
-    pub class: Rc<RefCell<ClassObject>>,
-    pub fields: HashMap<String, FieldValue>,
+#[derive(Debug, Collect)]
+#[collect(no_drop)]
+pub struct InstanceObject<'gc> {
+    pub class: Gc<'gc, RefLock<ClassObject<'gc>>>,
+    pub fields: HashMap<Gc<'gc, String>, Value<'gc>>,
 }
 
-impl InstanceObject {
-    pub fn new(class: Rc<RefCell<ClassObject>>) -> Self {
+impl<'gc> InstanceObject<'gc> {
+    pub fn new(class: Gc<RefLock<ClassObject<'gc>>>) -> Self {
         Self {
             class,
             fields: HashMap::new(),
@@ -117,69 +118,24 @@ impl InstanceObject {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct BoundMethod {
-    pub receiver: Rc<RefCell<InstanceObject>>,
-    pub closure: Rc<ClosureObject>,
+#[derive(Debug, Copy, Clone, Collect)]
+#[collect(no_drop)]
+pub struct BoundMethod<'gc> {
+    pub receiver: Gc<'gc, RefLock<InstanceObject<'gc>>>,
+    pub closure: Gc<'gc, ClosureObject<'gc>>,
 }
 
-impl BoundMethod {
-    pub fn new(receiver: Rc<RefCell<InstanceObject>>, closure: Rc<ClosureObject>) -> Self {
+impl<'gc> BoundMethod<'gc> {
+    pub fn new(
+        receiver: Gc<RefLock<InstanceObject<'gc>>>,
+        closure: Gc<ClosureObject<'gc>>,
+    ) -> Self {
         Self { receiver, closure }
     }
 }
 
-impl PartialEq for BoundMethod {
+impl PartialEq for BoundMethod<'_> {
     fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.receiver, &other.receiver) && Rc::ptr_eq(&self.closure, &other.closure)
-    }
-}
-
-#[cfg(feature = "debug_trace_gc")]
-mod debug {
-    use crate::common::print_function;
-
-    use super::{
-        BoundMethod, ClassObject, ClosureObject, FunctionObject, InstanceObject, UpvalueObject,
-    };
-
-    impl Drop for FunctionObject {
-        fn drop(&mut self) {
-            println!("Dropped function {}", print_function(&self.name))
-        }
-    }
-
-    impl Drop for ClosureObject {
-        fn drop(&mut self) {
-            println!("Dropped closure {}", print_function(&self.function.name))
-        }
-    }
-
-    impl Drop for UpvalueObject {
-        fn drop(&mut self) {
-            println!("Dropped upvalue {:?}", self)
-        }
-    }
-
-    impl Drop for ClassObject {
-        fn drop(&mut self) {
-            println!("Dropped class {}", self.name)
-        }
-    }
-
-    impl Drop for InstanceObject {
-        fn drop(&mut self) {
-            println!("Dropped class instance {}", self.class.borrow().name)
-        }
-    }
-
-    impl Drop for BoundMethod {
-        fn drop(&mut self) {
-            println!(
-                "Dropped bound method {} on receiver instance {}",
-                print_function(&self.closure.function.name),
-                self.receiver.borrow().class.borrow().name
-            )
-        }
+        std::ptr::eq(&self.receiver, &other.receiver) && std::ptr::eq(&self.closure, &other.closure)
     }
 }

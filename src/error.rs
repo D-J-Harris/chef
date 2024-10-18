@@ -4,12 +4,16 @@ pub type InterpretResult<T> = std::result::Result<T, RuntimeError>;
 
 #[derive(Debug, Error)]
 pub enum RuntimeError {
+    #[error("Compiler")] // TODO: move out
+    Compile,
     #[error("Index out of bounds.")]
     OutOfBounds,
     #[error("Attempted to read from uninitialized stack slot.")]
     UninitializedStackValue,
     #[error("Attempted to read from uninitialized constant slot.")]
     UninitializedConstantValue,
+    #[error("Attempted to read from uninitialized constant slot.")]
+    UninitializedUpvalue,
     #[error("Stack overflow.")]
     StackOverflow,
     #[error("Only instances have properties.")]
@@ -25,7 +29,7 @@ pub enum RuntimeError {
     #[error("Expected 0 arguments but got {0}.")]
     ClassArguments(u8),
     #[error("Undefined variable '{0}'.")]
-    UndefinedVariable(String),
+    UndefinedVariable(String), // TODO: better impl for error that takes Gc<String>
     #[error("Undefined property '{0}'.")]
     UndefinedProperty(String),
     #[error("Operand must be a number.")]

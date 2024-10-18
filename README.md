@@ -27,7 +27,6 @@ chef <.chef file>
 ## Features Flags
 
 - `--debug_trace` - print out each disassembled chunk at compile time, and each operation during runtime
-- `--debug_trace_gc` - print out the drops to explicitly heap-allocated objects that occur throughout the programme
 
 ## TODO
 

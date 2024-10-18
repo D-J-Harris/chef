@@ -1,5 +1,6 @@
-use std::rc::Rc;
 use std::u8;
+
+use gc_arena::{Gc, Mutation};
 
 use crate::common::{
     FUNCTION_ARITY_MAX_COUNT, JUMP_MAX_COUNT, JUMP_MAX_COUNT_USIZE, LOCALS_MAX_COUNT, SUPER_STRING,
@@ -15,21 +16,23 @@ use crate::{
 
 mod precedence;
 
-pub struct Compiler<'source> {
+pub struct Compiler<'source, 'gc> {
+    mc: &'gc Mutation<'gc>,
     scanner: Scanner<'source>,
     previous: Token<'source>,
     current: Token<'source>,
-    context: CompilerContext<'source>,
+    context: CompilerContext<'source, 'gc>,
     class_compiler: Option<Box<ClassCompiler>>,
     had_error: bool,
     panic_mode: bool,
 }
 
-impl<'source> Compiler<'source> {
-    pub fn new(source: &'source str) -> Self {
+impl<'source, 'gc> Compiler<'source, 'gc> {
+    pub fn new(mc: &'gc Mutation, source: &'source str) -> Self {
         let initial_token = Token::new("", 1, TokenKind::Error);
         let context = CompilerContext::new("", FunctionKind::Script);
         Self {
+            mc,
             scanner: Scanner::new(source),
             previous: initial_token,
             current: initial_token,
@@ -48,7 +51,7 @@ impl<'source> Compiler<'source> {
         &mut self.context.function.chunk
     }
 
-    pub fn compile(mut self) -> Option<FunctionObject> {
+    pub fn compile(mut self) -> Option<Gc<'gc, FunctionObject<'source>>> {
         self.advance();
         while !self.r#match(TokenKind::Eof) {
             self.declaration();
@@ -58,6 +61,7 @@ impl<'source> Compiler<'source> {
             Some((f, _upvalues)) => f,
             None => self.context.function,
         };
+        let function = Gc::new(self.mc, function);
         match had_error {
             true => None,
             false => Some(function),
@@ -202,7 +206,7 @@ impl<'source> Compiler<'source> {
 
         let Some(constant_index) = self
             .current_chunk_mut()
-            .add_constant(Value::Function(Rc::new(function)))
+            .add_constant(Value::Function(Gc::new(self.mc, function)))
         else {
             self.error("Too many constants in one chunk.");
             return;
@@ -276,8 +280,9 @@ impl<'source> Compiler<'source> {
     }
 
     fn constant_identifier(&mut self, token_name: &str) -> Option<u8> {
+        let token_name = Gc::new(self.mc, token_name.into());
         self.current_chunk_mut()
-            .add_constant(Value::String(token_name.into()))
+            .add_constant(Value::String(token_name))
     }
 
     fn define_variable(&mut self, constant_index: u8) {
@@ -548,7 +553,7 @@ impl<'source> Compiler<'source> {
         self.context.debug();
 
         self.context.enclosing.take().map(|parent| {
-            let context: CompilerContext<'source> = std::mem::replace(&mut self.context, *parent);
+            let context = std::mem::replace(&mut self.context, *parent);
             (context.function, context.upvalues)
         })
     }
@@ -604,16 +609,16 @@ struct Upvalue {
     pub index: u8,
 }
 
-struct CompilerContext<'source> {
-    pub enclosing: Option<Box<CompilerContext<'source>>>,
-    function: FunctionObject,
+struct CompilerContext<'source, 'gc> {
+    pub enclosing: Option<Box<CompilerContext<'source, 'gc>>>,
+    function: FunctionObject<'gc>,
     scope_depth: u8,
     locals: [Local<'source>; LOCALS_MAX_COUNT],
     locals_count: usize,
     pub upvalues: [Upvalue; UPVALUES_MAX_COUNT],
 }
 
-impl<'source> CompilerContext<'source> {
+impl<'source> CompilerContext<'source, '_> {
     pub fn new(name: &str, function_kind: FunctionKind) -> Self {
         let function = FunctionObject::new(name.into(), function_kind);
         let upvalues = std::array::from_fn(|_| Upvalue::default());

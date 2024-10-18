@@ -1,8 +1,14 @@
 use std::fmt::Debug;
 
-use crate::{common::U8_COUNT_USIZE, value::Value};
+use gc_arena::Collect;
 
-#[derive(Debug, Clone, Copy)]
+use crate::{
+    common::{CONSTANTS_MAX_COUNT, U8_COUNT_USIZE},
+    value::Value,
+};
+
+#[derive(Debug, Copy, Clone, Collect)]
+#[collect(require_static)]
 pub enum Operation {
     Return,
     Negate,
@@ -45,23 +51,21 @@ pub enum Operation {
     GetSuper(u8),
 }
 
-const CONSTANTS_DEFAULT: Option<Value> = None;
-
-#[derive(Debug)]
-pub struct Chunk {
+#[derive(Debug, Collect)]
+#[collect(no_drop)]
+pub struct Chunk<'gc> {
     pub code: Vec<Operation>,
     pub lines: Vec<usize>,
-    pub constants: [Option<Value>; CONSTANTS_MAX],
+    pub constants: Vec<Value<'gc>>,
     pub constants_count: usize,
 }
 
-const CONSTANTS_MAX: usize = U8_COUNT_USIZE;
-impl Chunk {
+impl Chunk<'_> {
     pub fn new() -> Self {
         Self {
             code: Vec::new(),
             lines: Vec::new(),
-            constants: [CONSTANTS_DEFAULT; CONSTANTS_MAX],
+            constants: Vec::with_capacity(CONSTANTS_MAX_COUNT),
             constants_count: 0,
         }
     }
@@ -78,7 +82,7 @@ impl Chunk {
             return None;
         };
         let index = self.constants_count;
-        self.constants[index] = Some(value);
+        self.constants[index] = value;
         self.constants_count += 1;
         Some(index as u8)
     }

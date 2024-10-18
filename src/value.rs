@@ -1,82 +1,31 @@
+use gc_arena::lock::RefLock;
+use gc_arena::{Collect, Gc};
+
 use crate::common::print_function;
 use crate::error::{InterpretResult, RuntimeError};
-use std::cell::RefCell;
 use std::fmt::{Debug, Display};
 use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
-use std::rc::{Rc, Weak};
 
 use crate::objects::{
     BoundMethod, ClassObject, ClosureObject, FunctionObject, InstanceObject, NativeFunctionObject,
 };
 
-#[derive(Debug, Clone)]
-pub enum Value {
+#[derive(Debug, Copy, Clone, Collect)]
+#[collect(no_drop)]
+pub enum Value<'gc> {
     Nil,
     Number(f64),
     Boolean(bool),
-    String(String),
-    BoundMethod(BoundMethod),
-    Function(Rc<FunctionObject>),
-    NativeFunction(Rc<NativeFunctionObject>),
-    Closure(Rc<ClosureObject>),
-    Class(Rc<RefCell<ClassObject>>),
-    Instance(Rc<RefCell<InstanceObject>>),
+    String(Gc<'gc, String>),
+    BoundMethod(BoundMethod<'gc>),
+    Closure(Gc<'gc, ClosureObject<'gc>>),
+    Function(Gc<'gc, FunctionObject<'gc>>),
+    Class(Gc<'gc, RefLock<ClassObject<'gc>>>),
+    Instance(Gc<'gc, RefLock<InstanceObject<'gc>>>),
+    NativeFunction(Gc<'gc, NativeFunctionObject<'gc>>),
 }
 
-#[derive(Debug, Clone)]
-pub enum FieldValue {
-    Nil,
-    Number(f64),
-    Boolean(bool),
-    String(String),
-    Function(Rc<FunctionObject>),
-    NativeFunction(Rc<NativeFunctionObject>),
-    Closure(Rc<ClosureObject>),
-    Class(Rc<RefCell<ClassObject>>),
-    Instance(Weak<RefCell<InstanceObject>>),
-    BoundMethod(BoundMethod),
-}
-
-impl TryFrom<&FieldValue> for Value {
-    type Error = RuntimeError;
-
-    fn try_from(value: &FieldValue) -> Result<Self, Self::Error> {
-        Ok(match value {
-            FieldValue::Nil => Value::Nil,
-            FieldValue::Number(x) => Value::Number(*x),
-            FieldValue::Boolean(x) => Value::Boolean(*x),
-            FieldValue::String(x) => Value::String(x.clone()),
-            FieldValue::Function(rc) => Value::Function(Rc::clone(rc)),
-            FieldValue::NativeFunction(rc) => Value::NativeFunction(Rc::clone(rc)),
-            FieldValue::Closure(rc) => Value::Closure(Rc::clone(rc)),
-            FieldValue::Class(rc) => Value::Class(Rc::clone(rc)),
-            FieldValue::Instance(weak) => Value::Instance(
-                weak.upgrade()
-                    .ok_or(RuntimeError::InstanceReferenceInvalid)?,
-            ),
-            FieldValue::BoundMethod(bound_method) => Value::BoundMethod(bound_method.clone()),
-        })
-    }
-}
-
-impl From<Value> for FieldValue {
-    fn from(value: Value) -> Self {
-        match value {
-            Value::Nil => FieldValue::Nil,
-            Value::Number(x) => FieldValue::Number(x),
-            Value::Boolean(x) => FieldValue::Boolean(x),
-            Value::String(x) => FieldValue::String(x.clone()),
-            Value::Function(rc) => FieldValue::Function(Rc::clone(&rc)),
-            Value::NativeFunction(rc) => FieldValue::NativeFunction(Rc::clone(&rc)),
-            Value::Closure(rc) => FieldValue::Closure(Rc::clone(&rc)),
-            Value::Class(rc) => FieldValue::Class(Rc::clone(&rc)),
-            Value::Instance(weak) => FieldValue::Instance(Rc::downgrade(&weak)),
-            Value::BoundMethod(bound_method) => FieldValue::BoundMethod(bound_method.clone()),
-        }
-    }
-}
-
-impl PartialEq for Value {
+impl PartialEq for Value<'_> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Nil, Self::Nil) => true,
@@ -84,17 +33,17 @@ impl PartialEq for Value {
             (Self::Number(a), Self::Number(b)) => *a == *b,
             (Self::String(a), Self::String(b)) => b.eq(a),
             (Self::BoundMethod(a), Self::BoundMethod(b)) => b.eq(a),
-            (Self::Class(a), Self::Class(b)) => Rc::ptr_eq(a, b),
-            (Self::Closure(a), Self::Closure(b)) => Rc::ptr_eq(a, b),
-            (Self::NativeFunction(a), Self::NativeFunction(b)) => Rc::ptr_eq(a, b),
-            (Self::Function(a), Self::Function(b)) => Rc::ptr_eq(a, b),
-            (Self::Instance(a), Self::Instance(b)) => Rc::ptr_eq(a, b),
+            (Self::Class(a), Self::Class(b)) => std::ptr::eq(a, b),
+            (Self::Closure(a), Self::Closure(b)) => std::ptr::eq(a, b),
+            (Self::NativeFunction(a), Self::NativeFunction(b)) => std::ptr::eq(a, b),
+            (Self::Function(a), Self::Function(b)) => std::ptr::eq(a, b),
+            (Self::Instance(a), Self::Instance(b)) => std::ptr::eq(a, b),
             _ => false,
         }
     }
 }
 
-impl Display for Value {
+impl Display for Value<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Nil => write!(f, "nil"),
@@ -111,7 +60,7 @@ impl Display for Value {
     }
 }
 
-impl Value {
+impl Value<'_> {
     pub fn negate(&mut self) -> InterpretResult<()> {
         match self {
             Self::Number(number) => *number = -*number,
