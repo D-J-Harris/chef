@@ -4,7 +4,7 @@ use gc_arena::{Collect, Gc};
 use crate::common::print_function;
 use crate::error::{InterpretResult, RuntimeError};
 use std::fmt::{Debug, Display};
-use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
+use std::ops::{AddAssign, Deref, DivAssign, MulAssign, SubAssign};
 
 use crate::objects::{
     BoundMethod, ClassObject, ClosureObject, FunctionObject, InstanceObject, NativeFunction,
@@ -16,7 +16,7 @@ pub enum Value<'gc> {
     Number(f64),
     Boolean(bool),
     String(Gc<'gc, String>),
-    BoundMethod(BoundMethod<'gc>),
+    BoundMethod(Gc<'gc, BoundMethod<'gc>>),
     Closure(Gc<'gc, ClosureObject<'gc>>),
     Function(Gc<'gc, FunctionObject<'gc>>),
     Class(Gc<'gc, RefLock<ClassObject<'gc>>>),
@@ -47,17 +47,17 @@ unsafe impl<'gc> Collect for Value<'gc> {
 
 impl PartialEq for Value<'_> {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
+        match (*self, *other) {
             (Self::Nil, Self::Nil) => true,
-            (Self::Boolean(a), Self::Boolean(b)) => *a == *b,
-            (Self::Number(a), Self::Number(b)) => *a == *b,
-            (Self::String(a), Self::String(b)) => b.eq(a),
-            (Self::BoundMethod(a), Self::BoundMethod(b)) => b.eq(a),
-            (Self::Class(a), Self::Class(b)) => std::ptr::eq(a, b),
-            (Self::Closure(a), Self::Closure(b)) => std::ptr::eq(a, b),
-            (Self::NativeFunction(a), Self::NativeFunction(b)) => std::ptr::eq(a, b),
-            (Self::Function(a), Self::Function(b)) => std::ptr::eq(a, b),
-            (Self::Instance(a), Self::Instance(b)) => std::ptr::eq(a, b),
+            (Self::Boolean(a), Self::Boolean(b)) => a == b,
+            (Self::Number(a), Self::Number(b)) => a == b,
+            (Self::String(a), Self::String(b)) => a.deref().eq(b.deref()),
+            (Self::BoundMethod(a), Self::BoundMethod(b)) => Gc::ptr_eq(a, b),
+            (Self::Class(a), Self::Class(b)) => Gc::ptr_eq(a, b),
+            (Self::Closure(a), Self::Closure(b)) => Gc::ptr_eq(a, b),
+            (Self::NativeFunction(a), Self::NativeFunction(b)) => a.eq(&b),
+            (Self::Function(a), Self::Function(b)) => Gc::ptr_eq(a, b),
+            (Self::Instance(a), Self::Instance(b)) => Gc::ptr_eq(a, b),
             _ => false,
         }
     }

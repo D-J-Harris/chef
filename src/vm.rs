@@ -303,7 +303,7 @@ impl<'gc> State<'gc> {
                     }
                     Operation::GetUpvalue(upvalue_slot) => {
                         let slot = *upvalue_slot as usize;
-                        let upvalue = &current_closure.upvalues[slot];
+                        let upvalue = current_closure.upvalues[slot];
                         let value = match &*upvalue.borrow() {
                             UpvalueObject::Open(value_slot) => self.stack[*value_slot],
                             UpvalueObject::Closed(value) => *value,
@@ -314,14 +314,15 @@ impl<'gc> State<'gc> {
                         let slot = *upvalue_slot as usize;
                         let replacement_value = self.peek(0)?;
                         let upvalue = current_closure.upvalues[slot];
-                        let slot = match *upvalue.borrow_mut(self.mc) {
+                        let mut upvalue_borrow = upvalue.borrow_mut(self.mc);
+                        let slot = match &mut *upvalue_borrow {
                             UpvalueObject::Open(value_slot) => value_slot,
-                            UpvalueObject::Closed(mut _value) => {
-                                _value = *replacement_value;
+                            UpvalueObject::Closed(value) => {
+                                *value = *replacement_value;
                                 continue;
                             }
                         };
-                        self.stack[slot] = *replacement_value
+                        self.stack[*slot] = *replacement_value
                     }
                     Operation::CloseUpvalue => {
                         self.close_upvalues(self.stack.len() - 1)?;
@@ -380,11 +381,12 @@ impl<'gc> State<'gc> {
                         else {
                             return Err(RuntimeError::ConstantStringNotFound);
                         };
-                        let call_frame = self.invoke(method, *argument_count)?;
-                        self.push_frame(current_frame)?;
-                        current_frame = call_frame;
-                        current_closure = current_frame.closure;
-                        current_function = current_closure.function;
+                        if let Some(call_frame) = self.invoke(method, *argument_count)? {
+                            self.push_frame(current_frame)?;
+                            current_frame = call_frame;
+                            current_closure = current_frame.closure;
+                            current_function = current_closure.function;
+                        }
                     }
                     Operation::Inherit => {
                         let Value::Class(superclass) = self.peek(1)? else {
@@ -438,16 +440,19 @@ impl<'gc> State<'gc> {
         &mut self,
         method: Gc<'gc, String>,
         argument_count: u8,
-    ) -> InterpretResult<CallFrame<'gc>> {
+    ) -> InterpretResult<Option<CallFrame<'gc>>> {
         let Value::Instance(receiver) = *self.peek(argument_count as usize)? else {
             return Err(RuntimeError::InstanceInvoke);
         };
         if let Some(field_value) = receiver.borrow().fields.get(method.deref()) {
             let index = self.stack.len() - argument_count as usize - 1;
             self.stack[index] = *field_value;
-            self.call_value(argument_count)?;
+            self.call_value(argument_count)
+        } else {
+            let call_frame =
+                self.invoke_from_class(receiver.borrow().class, method, argument_count)?;
+            Ok(Some(call_frame))
         }
-        self.invoke_from_class(receiver.borrow().class, method, argument_count)
     }
 
     fn invoke_from_class(
@@ -582,7 +587,7 @@ impl<'gc> State<'gc> {
             _ => return Err(RuntimeError::NoInstanceOnStack),
         };
         let bound_method = BoundMethod::new(receiver, closure);
-        self.push(Value::BoundMethod(bound_method))
+        self.push(Value::BoundMethod(Gc::new(self.mc, bound_method)))
     }
 }
 

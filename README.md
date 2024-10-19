@@ -72,7 +72,6 @@ The tests differ to the original test suite in the following ways:
 
 - `scanning/*.lox` is removed
 - `expressions/parse.lox` is removed
-- `operator/equals_method.lox` second assertion changed to expect true
 
 ## Copyright Notice
 

@@ -10,4 +10,4 @@ var fooMethod = foo.method;
 print fooMethod == fooMethod; // expect: true
 
 // Different closurizations.
-print foo.method == foo.method; // expect: true
+print foo.method == foo.method; // expect: false
