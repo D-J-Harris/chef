@@ -173,12 +173,12 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         self.consume(TokenKind::LeftParen, "Expect '(' after function name.");
         if !self.check(TokenKind::RightParen) {
             loop {
-                let mut _current_arity = self.context.function.borrow_mut().arity;
-                if _current_arity == FUNCTION_ARITY_MAX_COUNT {
+                let current_arity = &mut self.context.function.borrow_mut().arity;
+                if *current_arity == FUNCTION_ARITY_MAX_COUNT {
                     self.error_at_current("Can't have more than 255 parameters.");
                     return;
                 }
-                _current_arity += 1;
+                *current_arity += 1;
                 let Some(constant_index) = self.parse_variable("Expect parameter name.") else {
                     self.error("Reached constant limit.");
                     return;

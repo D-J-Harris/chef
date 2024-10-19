@@ -41,14 +41,21 @@ impl<'source> Chef {
     fn interpret(&mut self, source: &'source str) -> InterpretResult<()> {
         const COLLECTOR_STEPS: u8 = 255;
 
+        self.state.mutate_root(|mc, state| {
+            let compiler = Compiler::new(mc, source);
+            let function = compiler.compile().ok_or(RuntimeError::Compile)?;
+            let function = Gc::new(mc, function);
+            state.push(Value::Function(function))?;
+            let closure = Gc::new(mc, ClosureObject::new(function.upvalue_count, function));
+            let call_frame = state.call(closure, 0)?;
+            state.push_frame(call_frame)
+        })?;
+
+        #[cfg(feature = "debug_trace")]
+        println!("====== Executing      ======");
+
         loop {
-            match self.state.mutate_root(|mc, state| {
-                let compiler = Compiler::new(mc, source);
-                let function = compiler.compile().ok_or(RuntimeError::Compile)?;
-                let function = Gc::new(mc, function);
-                state.push(Value::Function(function))?;
-                let closure = Gc::new(mc, ClosureObject::new(function.upvalue_count, function));
-                state.call(closure, 0)?;
+            match self.state.mutate_root(|_, state| {
                 let result = state.run(COLLECTOR_STEPS);
                 if let Err(err) = &result {
                     eprintln!("{err}");
@@ -57,7 +64,7 @@ impl<'source> Chef {
                 result
             }) {
                 Ok(false) => continue,
-                _ => break Ok(()),
+                result => break result.map(|_| ()),
             }
         }
     }
@@ -96,7 +103,7 @@ fn run_file(mut chef: Chef, path: &str) {
     };
     source.push('\0');
     match chef.interpret(&source) {
-        Ok(_) => todo!(),
+        Ok(_) => (),
         Err(RuntimeError::Compile) => exit(65),
         Err(_) => exit(70),
     }

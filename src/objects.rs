@@ -80,7 +80,7 @@ impl<'gc> UpvalueObject<'gc> {
 #[collect(no_drop)]
 pub struct ClassObject<'gc> {
     pub name: String,
-    pub methods: HashMap<Gc<'gc, String>, Gc<'gc, ClosureObject<'gc>>>,
+    pub methods: HashMap<String, Gc<'gc, ClosureObject<'gc>>>,
 }
 
 impl<'gc> ClassObject<'gc> {
@@ -91,7 +91,7 @@ impl<'gc> ClassObject<'gc> {
         }
     }
 
-    pub fn add_method(&mut self, name: Gc<'gc, String>, value: Gc<'gc, ClosureObject<'gc>>) {
+    pub fn add_method(&mut self, name: String, value: Gc<'gc, ClosureObject<'gc>>) {
         self.methods.insert(name, value);
     }
 }
@@ -100,7 +100,7 @@ impl<'gc> ClassObject<'gc> {
 #[collect(no_drop)]
 pub struct InstanceObject<'gc> {
     pub class: Gc<'gc, RefLock<ClassObject<'gc>>>,
-    pub fields: HashMap<Gc<'gc, String>, Value<'gc>>,
+    pub fields: HashMap<String, Value<'gc>>,
 }
 
 impl<'gc> InstanceObject<'gc> {

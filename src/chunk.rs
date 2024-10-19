@@ -89,7 +89,7 @@ impl<'gc> Chunk<'gc> {
 impl Chunk<'_> {
     pub fn disassemble(&self, name: &str) {
         println!("====== Chunk {name} ======");
-        for offset in 0..self.code.len() - 1 {
+        for offset in 0..self.code.len() {
             self.disassemble_instruction(offset)
         }
         println!();
