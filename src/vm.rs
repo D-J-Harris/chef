@@ -38,7 +38,7 @@ pub struct State<'gc> {
     stack: Vec<Value<'gc>>,
     stack_top: usize,
     upvalues: Vec<Gc<'gc, RefLock<UpvalueObject<'gc>>>>,
-    pub(super) identifiers: HashMap<Gc<'gc, String>, Value<'gc>>,
+    pub(super) identifiers: HashMap<String, Value<'gc>>,
 }
 
 unsafe impl<'gc> Collect for State<'gc> {
@@ -73,7 +73,7 @@ impl<'gc> State<'gc> {
     }
 
     pub fn declare_native_functions(&mut self) {
-        let name = Gc::new(self.mc, "clock".into());
+        let name = "clock".into();
         let native_function = current_time_s::<'gc>;
         let function = Value::NativeFunction(native_function);
         self.identifiers.insert(name, function);
@@ -224,7 +224,7 @@ impl<'gc> State<'gc> {
                             return Err(RuntimeError::ConstantStringNotFound);
                         };
                         let constant = self.pop();
-                        self.identifiers.insert(name, constant);
+                        self.identifiers.insert(name.deref().clone(), constant);
                     }
                     Operation::GetGlobal(index) => {
                         let Value::String(name) = read_constant(&current_function, *index)? else {
@@ -232,7 +232,7 @@ impl<'gc> State<'gc> {
                         };
                         let constant = self
                             .identifiers
-                            .get(&name)
+                            .get(name.deref())
                             .ok_or(RuntimeError::UndefinedVariable(name.deref().clone()))?;
                         self.push(*constant)?
                     }
@@ -242,7 +242,7 @@ impl<'gc> State<'gc> {
                         };
                         let constant = self.peek(0)?;
                         self.identifiers
-                            .insert(name, *constant)
+                            .insert(name.deref().clone(), *constant)
                             .ok_or(RuntimeError::UndefinedVariable(name.deref().clone()))?;
                     }
                     Operation::GetLocal(frame_index) => {
@@ -523,7 +523,7 @@ impl<'gc> State<'gc> {
         match callee {
             Value::NativeFunction(function) => {
                 let result = (function)(argument_count, self.stack_top - argument_count as usize);
-                self.stack_top -= argument_count as usize + 1;
+                self.stack.truncate(self.stack.len() - 1);
                 self.push(result)?;
                 Ok(None)
             }

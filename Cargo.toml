@@ -8,6 +8,7 @@ debug = true
 
 [features]
 debug_trace = []
+debug_code = []
 
 [dependencies]
 thiserror = "1.0.64"

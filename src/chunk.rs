@@ -85,7 +85,7 @@ impl<'gc> Chunk<'gc> {
     }
 }
 
-#[cfg(feature = "debug_trace")]
+#[cfg(feature = "debug_code")]
 impl Chunk<'_> {
     pub fn disassemble(&self, name: &str) {
         println!("====== Chunk {name} ======");
@@ -94,7 +94,10 @@ impl Chunk<'_> {
         }
         println!();
     }
+}
 
+#[cfg(any(feature = "debug_code", feature = "debug_trace"))]
+impl Chunk<'_> {
     pub fn disassemble_instruction(&self, offset: usize) {
         let operation = self.code[offset];
         let line = self.lines[offset];

@@ -557,7 +557,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
 
     fn end_compiler(&mut self) -> Option<(FunctionObject<'gc>, [Upvalue; UPVALUES_MAX_COUNT])> {
         self.emit_return();
-        #[cfg(feature = "debug_trace")]
+        #[cfg(feature = "debug_code")]
         self.context.debug();
 
         self.context.enclosing.take().map(|parent| {
@@ -645,7 +645,7 @@ impl<'source, 'gc> CompilerContext<'source, 'gc> {
         }
     }
 
-    #[cfg(feature = "debug_trace")]
+    #[cfg(feature = "debug_code")]
     fn debug(&self) {
         let name = match self.function.name.is_empty() {
             true => "<script>".into(),
