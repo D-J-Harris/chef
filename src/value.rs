@@ -2,7 +2,7 @@ use gc_arena::lock::RefLock;
 use gc_arena::{Collect, Gc};
 
 use crate::common::print_function;
-use crate::error::{InterpretResult, RuntimeError};
+use crate::error::{ChefError, InterpretResult};
 use std::fmt::{Debug, Display};
 use std::ops::{AddAssign, Deref, DivAssign, MulAssign, SubAssign};
 
@@ -84,7 +84,7 @@ impl<'gc> Value<'gc> {
     pub fn negate(&mut self) -> InterpretResult<()> {
         match self {
             Self::Number(number) => *number = -*number,
-            _ => return Err(RuntimeError::ValueNegationOperation),
+            _ => return Err(ChefError::ValueNegationOperation),
         };
         Ok(())
     }
@@ -92,7 +92,7 @@ impl<'gc> Value<'gc> {
     pub fn add_assign(&mut self, rhs: Self) -> InterpretResult<()> {
         match (self, rhs) {
             (Self::Number(a), Self::Number(b)) => a.add_assign(b),
-            _ => return Err(RuntimeError::ValueAddOperation),
+            _ => return Err(ChefError::ValueAddOperation),
         };
         Ok(())
     }
@@ -100,7 +100,7 @@ impl<'gc> Value<'gc> {
     pub fn sub_assign(&mut self, rhs: Self) -> InterpretResult<()> {
         match (self, rhs) {
             (Self::Number(a), Self::Number(b)) => a.sub_assign(b),
-            _ => return Err(RuntimeError::ValueNumberOnlyOperation),
+            _ => return Err(ChefError::ValueNumberOnlyOperation),
         };
         Ok(())
     }
@@ -108,7 +108,7 @@ impl<'gc> Value<'gc> {
     pub fn mul_assign(&mut self, rhs: Self) -> InterpretResult<()> {
         match (self, rhs) {
             (Self::Number(a), Self::Number(b)) => a.mul_assign(b),
-            _ => return Err(RuntimeError::ValueNumberOnlyOperation),
+            _ => return Err(ChefError::ValueNumberOnlyOperation),
         };
         Ok(())
     }
@@ -116,7 +116,7 @@ impl<'gc> Value<'gc> {
     pub fn div_assign(&mut self, rhs: Self) -> InterpretResult<()> {
         match (self, rhs) {
             (Self::Number(a), Self::Number(b)) => a.div_assign(b),
-            _ => return Err(RuntimeError::ValueNumberOnlyOperation),
+            _ => return Err(ChefError::ValueNumberOnlyOperation),
         };
         Ok(())
     }
@@ -136,14 +136,14 @@ impl<'gc> Value<'gc> {
     pub fn is_greater(&self, rhs: Self) -> InterpretResult<bool> {
         match (self, rhs) {
             (Self::Number(a), Self::Number(b)) => Ok(*a > b),
-            _ => Err(RuntimeError::ValueNumberOnlyOperation),
+            _ => Err(ChefError::ValueNumberOnlyOperation),
         }
     }
 
     pub fn is_less(&self, rhs: Self) -> InterpretResult<bool> {
         match (self, rhs) {
             (Self::Number(a), Self::Number(b)) => Ok(*a < b),
-            _ => Err(RuntimeError::ValueNumberOnlyOperation),
+            _ => Err(ChefError::ValueNumberOnlyOperation),
         }
     }
 }

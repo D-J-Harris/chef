@@ -4,8 +4,8 @@ use std::io::Write;
 use std::process::exit;
 
 use compiler::Compiler;
+use error::ChefError;
 use error::InterpretResult;
-use error::RuntimeError;
 use gc_arena::Arena;
 use gc_arena::Gc;
 use gc_arena::Rootable;
@@ -40,10 +40,11 @@ impl<'source> Chef {
 
     fn interpret(&mut self, source: &'source str) -> InterpretResult<()> {
         const COLLECTOR_STEPS: u8 = 255;
+        const COLLECTOR_GRANULARITY: f64 = 1024.0 * 1024.0;
 
         self.state.mutate_root(|mc, state| {
             let compiler = Compiler::new(mc, source);
-            let function = compiler.compile().ok_or(RuntimeError::Compile)?;
+            let function = compiler.compile().ok_or(ChefError::Compile)?;
             let function = Gc::new(mc, function);
             state.push(Value::Function(function))?;
             let closure = Gc::new(mc, ClosureObject::new(function.upvalue_count, function));
@@ -63,7 +64,12 @@ impl<'source> Chef {
                 }
                 result
             }) {
-                Ok(false) => continue,
+                Ok(false) => {
+                    if self.state.metrics().allocation_debt() > COLLECTOR_GRANULARITY {
+                        self.state.collect_all();
+                    }
+                    continue;
+                }
                 result => break result.map(|_| ()),
             }
         }
@@ -104,7 +110,7 @@ fn run_file(mut chef: Chef, path: &str) {
     source.push('\0');
     match chef.interpret(&source) {
         Ok(_) => (),
-        Err(RuntimeError::Compile) => exit(65),
+        Err(ChefError::Compile) => exit(65),
         Err(_) => exit(70),
     }
 }

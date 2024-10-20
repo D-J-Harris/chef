@@ -1,18 +1,12 @@
-use std::path::PathBuf;
-use std::{env, process::Command};
+mod common;
 
+use std::env;
+use std::path::PathBuf;
+use std::process::Output;
+
+use common::command;
 use regex::Regex;
 use test_generator::test_resources;
-
-fn command() -> Command {
-    // Create full path to binary
-    let path = env::current_exe().expect("Could not get path to current executable.");
-    let path = path.parent().expect("Path parent not found.");
-    let mut path = path.parent().expect("Path parent not found.").to_owned();
-    path.push(env!("CARGO_PKG_NAME"));
-    path.set_extension(env::consts::EXE_EXTENSION);
-    Command::new(path.into_os_string())
-}
 
 struct RuntimeError {
     line_prefix: String,
@@ -23,6 +17,30 @@ struct Expected {
     out: Vec<String>,
     compile_err: Vec<String>,
     runtime_err: Option<RuntimeError>,
+}
+
+#[test_resources("tests/suite/*/*.lox")]
+fn run_file_test(filename: &str) {
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push(filename);
+    let expected = parse_comments(&path);
+    let output = command()
+        .arg(path)
+        .output()
+        .expect("Command execution error.");
+
+    let out: Vec<String> = String::from_utf8(output.stdout.clone())
+        .expect("Invalid UTF-8")
+        .lines()
+        .map(|x| x.to_owned())
+        .collect();
+    let err: Vec<String> = String::from_utf8(output.stderr.clone())
+        .expect("Invalid UTF-8")
+        .lines()
+        .map(|x| x.to_owned())
+        .collect();
+
+    run_assertions(expected, output, out, err);
 }
 
 fn parse_comments(path: &PathBuf) -> Expected {
@@ -67,27 +85,7 @@ fn parse_comments(path: &PathBuf) -> Expected {
     expected
 }
 
-#[test_resources("tests/suite/*/*.lox")]
-fn run_file_test(filename: &str) {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push(filename);
-    let expected = parse_comments(&path);
-    let output = command()
-        .arg(path)
-        .output()
-        .expect("Command execution error.");
-
-    let out: Vec<String> = String::from_utf8(output.stdout)
-        .expect("Invalid UTF-8")
-        .lines()
-        .map(|x| x.to_owned())
-        .collect();
-    let err: Vec<String> = String::from_utf8(output.stderr)
-        .expect("Invalid UTF-8")
-        .lines()
-        .map(|x| x.to_owned())
-        .collect();
-
+fn run_assertions(expected: Expected, output: Output, out: Vec<String>, err: Vec<String>) {
     match (
         expected.runtime_err.is_none(),
         expected.compile_err.is_empty(),

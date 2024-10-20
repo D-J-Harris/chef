@@ -42,3 +42,6 @@ rust-project.json
 NOTES.md
 local.lox
 bins/
+*.csv
+*.svg
+*.json

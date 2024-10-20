@@ -1,10 +1,10 @@
 use thiserror::Error;
 
-pub type InterpretResult<T> = std::result::Result<T, RuntimeError>;
+pub type InterpretResult<T> = std::result::Result<T, ChefError>;
 
 #[derive(Debug, Error)]
-pub enum RuntimeError {
-    #[error("Compiler")] // TODO: move out
+pub enum ChefError {
+    #[error("Could not compile.")]
     Compile,
     #[error("Index out of bounds.")]
     OutOfBounds,
