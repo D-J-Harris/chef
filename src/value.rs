@@ -4,7 +4,7 @@ use gc_arena::{Collect, Gc};
 use crate::common::print_function;
 use crate::error::{ChefError, InterpretResult};
 use std::fmt::{Debug, Display};
-use std::ops::{AddAssign, Deref, DivAssign, MulAssign, SubAssign};
+use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
 
 use crate::objects::{
     BoundMethod, ClassObject, ClosureObject, FunctionObject, InstanceObject, NativeFunction,
@@ -51,7 +51,7 @@ impl PartialEq for Value<'_> {
             (Self::Nil, Self::Nil) => true,
             (Self::Boolean(a), Self::Boolean(b)) => a == b,
             (Self::Number(a), Self::Number(b)) => a == b,
-            (Self::String(a), Self::String(b)) => a.deref().eq(b.deref()),
+            (Self::String(a), Self::String(b)) => a.eq(&b),
             (Self::BoundMethod(a), Self::BoundMethod(b)) => Gc::ptr_eq(a, b),
             (Self::Class(a), Self::Class(b)) => Gc::ptr_eq(a, b),
             (Self::Closure(a), Self::Closure(b)) => Gc::ptr_eq(a, b),

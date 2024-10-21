@@ -10,6 +10,7 @@ use crate::common::{
 use crate::objects::{FunctionKind, FunctionObject};
 use crate::scanner::{Token, TokenKind};
 use crate::value::Value;
+use crate::vm::State;
 use crate::{
     chunk::{Chunk, Operation},
     scanner::Scanner,
@@ -23,13 +24,18 @@ pub struct Compiler<'source, 'gc> {
     previous: Token<'source>,
     current: Token<'source>,
     context: CompilerContext<'source, 'gc>,
+    state: &'source mut State<'gc>,
     class_compiler: Option<Box<ClassCompiler>>,
     had_error: bool,
     panic_mode: bool,
 }
 
 impl<'source, 'gc> Compiler<'source, 'gc> {
-    pub fn new(mc: &'gc Mutation<'gc>, source: &'source str) -> Self {
+    pub fn new(
+        mc: &'gc Mutation<'gc>,
+        source: &'source str,
+        state: &'source mut State<'gc>,
+    ) -> Self {
         let initial_token = Token::new("", 1, TokenKind::Error);
         let context = CompilerContext::new("", FunctionKind::Script);
         Self {
@@ -40,6 +46,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             had_error: false,
             panic_mode: false,
             context,
+            state,
             class_compiler: None,
         }
     }
@@ -48,7 +55,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         &self.context.function.chunk
     }
 
-    pub fn compile(mut self) -> Option<FunctionObject<'gc>> {
+    pub fn compile(mut self) -> Option<Gc<'gc, FunctionObject<'gc>>> {
         self.advance();
         while !self.r#match(TokenKind::Eof) {
             self.declaration();
@@ -60,7 +67,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         };
         match had_error {
             true => None,
-            false => Some(function),
+            false => Some(Gc::new(self.mc, function)),
         }
     }
 
@@ -278,12 +285,13 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     }
 
     fn constant_identifier(&mut self, token_name: &str) -> Option<u8> {
-        let token_name = Gc::new(self.mc, token_name.into());
+        // intern the string
+        let string = self.state.strings.intern(token_name);
         self.context
             .function
             .borrow_mut()
             .chunk
-            .add_constant(Value::String(token_name))
+            .add_constant(Value::String(string))
     }
 
     fn define_variable(&mut self, constant_index: u8) {

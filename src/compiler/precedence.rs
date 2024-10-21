@@ -1,8 +1,6 @@
 use std::borrow::BorrowMut;
 use std::u8;
 
-use gc_arena::Gc;
-
 use crate::{
     chunk::Operation,
     common::{JUMP_MAX_COUNT, SUPER_STRING, UPVALUES_MAX_COUNT},
@@ -122,9 +120,9 @@ impl Compiler<'_, '_> {
 
     fn string(&mut self) {
         let lexeme_len = self.previous.lexeme.len();
-        let constant = &self.previous.lexeme[1..{ lexeme_len - 1 }];
-        let constant = Gc::new(self.mc, constant.into());
-        self.emit_constant(Value::String(constant));
+        let lexeme = &self.previous.lexeme[1..{ lexeme_len - 1 }];
+        let string = self.state.strings.intern(lexeme);
+        self.emit_constant(Value::String(string));
     }
 
     pub fn variable(&mut self, can_assign: bool) {

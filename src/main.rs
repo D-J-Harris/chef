@@ -10,6 +10,7 @@ use gc_arena::Arena;
 use gc_arena::Gc;
 use gc_arena::Rootable;
 use objects::ClosureObject;
+use strings::StringInterner;
 use value::Value;
 use vm::State;
 
@@ -20,9 +21,9 @@ mod error;
 mod native_functions;
 mod objects;
 mod scanner;
+mod strings;
 mod value;
 mod vm;
-
 pub struct Chef {
     state: Arena<Rootable![State<'_>]>,
 }
@@ -30,7 +31,7 @@ pub struct Chef {
 impl<'source> Chef {
     fn new() -> Self {
         let arena = Arena::<Rootable![State<'_>]>::new(|mc| {
-            let mut state = State::new(mc);
+            let mut state = State::new(mc, StringInterner::new(mc));
             state.declare_native_functions();
             state
         });
@@ -42,9 +43,8 @@ impl<'source> Chef {
         const COLLECTOR_STEPS: u8 = 255;
 
         self.state.mutate_root(|mc, state| {
-            let compiler = Compiler::new(mc, source);
+            let compiler = Compiler::new(mc, source, state);
             let function = compiler.compile().ok_or(ChefError::Compile)?;
-            let function = Gc::new(mc, function);
             state.push(Value::Function(function))?;
             let closure = Gc::new(mc, ClosureObject::new(function.upvalue_count, function));
             let call_frame = state.call(closure, 0)?;

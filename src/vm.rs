@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 
 use gc_arena::lock::RefLock;
-use gc_arena::{Collect, Collection, Gc, Mutation};
+use gc_arena::{Collect, Collection, Gc, GcWeak, Mutation};
 
 use crate::chunk::Operation;
 use crate::common::{CALL_FRAMES_MAX_COUNT, INIT_STRING, STACK_VALUES_MAX_COUNT};
@@ -11,6 +11,7 @@ use crate::native_functions::current_time_s;
 use crate::objects::{
     BoundMethod, ClassObject, ClosureObject, FunctionObject, InstanceObject, UpvalueObject,
 };
+use crate::strings::StringInterner;
 use crate::value::Value;
 
 #[derive(Debug, Copy, Clone, Collect)]
@@ -46,7 +47,8 @@ pub struct State<'gc> {
     stack: Vec<Value<'gc>>,
     stack_top: usize,
     upvalues: Vec<Gc<'gc, RefLock<UpvalueObject<'gc>>>>,
-    pub(super) identifiers: HashMap<String, Value<'gc>>,
+    pub(super) strings: StringInterner<'gc>,
+    pub(super) identifiers: HashMap<Gc<'gc, String>, Value<'gc>>,
 }
 
 unsafe impl<'gc> Collect for State<'gc> {
@@ -67,7 +69,7 @@ unsafe impl<'gc> Collect for State<'gc> {
 }
 
 impl<'gc> State<'gc> {
-    pub fn new(mc: &'gc Mutation<'gc>) -> Self {
+    pub fn new(mc: &'gc Mutation<'gc>, string_interner: StringInterner<'gc>) -> Self {
         let identifiers = HashMap::new();
 
         Self {
@@ -76,12 +78,13 @@ impl<'gc> State<'gc> {
             stack: Vec::with_capacity(STACK_VALUES_MAX_COUNT),
             stack_top: 0,
             upvalues: Vec::new(),
+            strings: string_interner,
             identifiers,
         }
     }
 
     pub fn declare_native_functions(&mut self) {
-        let name = "clock".into();
+        let name = self.strings.intern("clock");
         let native_function = current_time_s::<'gc>;
         let function = Value::NativeFunction(native_function);
         self.identifiers.insert(name, function);
@@ -238,7 +241,7 @@ impl<'gc> State<'gc> {
                     return Err(ChefError::ConstantStringNotFound);
                 };
                 let constant = self.pop();
-                self.identifiers.insert(name.deref().clone(), constant);
+                self.identifiers.insert(name, constant);
             }
             Operation::GetGlobal(index) => {
                 let Value::String(name) = read_constant(current_frame.function(), *index)? else {
@@ -246,7 +249,7 @@ impl<'gc> State<'gc> {
                 };
                 let constant = self
                     .identifiers
-                    .get(name.deref())
+                    .get(&name)
                     .ok_or(ChefError::UndefinedVariable(name.deref().clone()))?;
                 self.push(*constant)?
             }
@@ -256,7 +259,7 @@ impl<'gc> State<'gc> {
                 };
                 let constant = self.peek(0)?;
                 self.identifiers
-                    .insert(name.deref().clone(), *constant)
+                    .insert(name, *constant)
                     .ok_or(ChefError::UndefinedVariable(name.deref().clone()))?;
             }
             Operation::GetLocal(frame_index) => {
@@ -342,7 +345,7 @@ impl<'gc> State<'gc> {
                 let Value::String(name) = read_constant(current_frame.function(), *index)? else {
                     return Err(ChefError::ConstantClassNotFound);
                 };
-                let class = Gc::new(self.mc, RefLock::new(ClassObject::new(&name)));
+                let class = Gc::new(self.mc, RefLock::new(ClassObject::new(name)));
                 self.push(Value::Class(class))?
             }
             Operation::GetProperty(index) => {
@@ -352,7 +355,7 @@ impl<'gc> State<'gc> {
                 let Value::String(name) = read_constant(current_frame.function(), *index)? else {
                     return Err(ChefError::ConstantStringNotFound);
                 };
-                match instance.borrow().fields.get(name.deref()) {
+                match instance.borrow().fields.get(&name) {
                     Some(value) => {
                         self.pop();
                         self.push(*value)?;
@@ -370,10 +373,7 @@ impl<'gc> State<'gc> {
                     return Err(ChefError::ConstantStringNotFound);
                 };
                 let value = self.pop();
-                instance
-                    .borrow_mut(self.mc)
-                    .fields
-                    .insert(name.deref().clone(), value);
+                instance.borrow_mut(self.mc).fields.insert(name, value);
                 self.pop();
                 self.push(value)?
             }
@@ -400,10 +400,7 @@ impl<'gc> State<'gc> {
                     return Err(ChefError::ConstantClassNotFound);
                 };
                 for (name, method) in superclass.borrow().methods.iter() {
-                    subclass
-                        .borrow_mut(self.mc)
-                        .methods
-                        .insert(name.clone(), *method);
+                    subclass.borrow_mut(self.mc).methods.insert(*name, *method);
                 }
                 self.pop();
             }
@@ -439,7 +436,7 @@ impl<'gc> State<'gc> {
         let Value::Instance(receiver) = *self.peek(argument_count as usize)? else {
             return Err(ChefError::InstanceInvoke);
         };
-        if let Some(field_value) = receiver.borrow().fields.get(method.deref()) {
+        if let Some(field_value) = receiver.borrow().fields.get(&method) {
             let index = self.stack.len() - argument_count as usize - 1;
             self.stack[index] = *field_value;
             self.call_value(argument_count)
@@ -459,7 +456,7 @@ impl<'gc> State<'gc> {
         let method = *class
             .borrow()
             .methods
-            .get(name.deref())
+            .get(&name)
             .ok_or(ChefError::UndefinedProperty(name.deref().clone()))?;
         self.call(method, argument_count)
     }
@@ -471,9 +468,7 @@ impl<'gc> State<'gc> {
         let Value::Class(class) = self.peek(0)? else {
             return Err(ChefError::ConstantClassNotFound);
         };
-        class
-            .borrow_mut(self.mc)
-            .add_method(name.deref().clone(), closure);
+        class.borrow_mut(self.mc).add_method(name, closure);
         Ok(())
     }
 
@@ -514,7 +509,7 @@ impl<'gc> State<'gc> {
     }
 
     fn call_value(&mut self, argument_count: u8) -> InterpretResult<Option<CallFrame<'gc>>> {
-        let callee = self.peek(argument_count as usize)?.clone();
+        let callee = *self.peek(argument_count as usize)?;
         match callee {
             Value::NativeFunction(function) => {
                 let result = (function)(argument_count, self.stack_top - argument_count as usize);
@@ -531,7 +526,8 @@ impl<'gc> State<'gc> {
                 let instance = Value::Instance(Gc::new(self.mc, RefLock::new(instance)));
                 let index = self.stack.len() - argument_count as usize - 1;
                 self.stack[index] = instance;
-                if let Some(closure) = class.borrow().methods.get(INIT_STRING) {
+                let init_pointer = self.strings.intern(INIT_STRING);
+                if let Some(closure) = class.borrow().methods.get(&init_pointer) {
                     let call_frame = self.call(*closure, argument_count)?;
                     Ok(Some(call_frame))
                 } else if argument_count != 0 {
@@ -575,7 +571,7 @@ impl<'gc> State<'gc> {
         let closure = *class
             .borrow()
             .methods
-            .get(name.deref())
+            .get(&name)
             .ok_or(ChefError::UndefinedProperty(name.deref().clone()))?;
         let receiver = match self.pop() {
             Value::Instance(instance) => instance,
