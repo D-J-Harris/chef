@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 
 use gc_arena::lock::RefLock;
-use gc_arena::{Collect, Collection, Gc, GcWeak, Mutation};
+use gc_arena::{Collect, Collection, Gc, Mutation};
 
 use crate::chunk::Operation;
 use crate::common::{CALL_FRAMES_MAX_COUNT, INIT_STRING, STACK_VALUES_MAX_COUNT};
