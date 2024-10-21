@@ -40,7 +40,6 @@ impl<'source> Chef {
 
     fn interpret(&mut self, source: &'source str) -> InterpretResult<()> {
         const COLLECTOR_STEPS: u8 = 255;
-        const COLLECTOR_GRANULARITY: f64 = 1024.0 * 1024.0;
 
         self.state.mutate_root(|mc, state| {
             let compiler = Compiler::new(mc, source);
@@ -55,6 +54,7 @@ impl<'source> Chef {
         #[cfg(feature = "debug_trace")]
         println!("====== Executing      ======");
 
+        let mut collector_granularity: f64 = 1024.0 * 1024.0;
         loop {
             match self.state.mutate_root(|_, state| {
                 let result = state.run(COLLECTOR_STEPS);
@@ -65,7 +65,8 @@ impl<'source> Chef {
                 result
             }) {
                 Ok(false) => {
-                    if self.state.metrics().allocation_debt() > COLLECTOR_GRANULARITY {
+                    if self.state.metrics().allocation_debt() > collector_granularity {
+                        collector_granularity = collector_granularity * 2.0;
                         self.state.collect_all();
                     }
                     continue;
@@ -108,8 +109,10 @@ fn run_file(mut chef: Chef, path: &str) {
         exit(74);
     };
     source.push('\0');
+
+    // unix sysexits.h exit codes
     match chef.interpret(&source) {
-        Ok(_) => (),
+        Ok(_) => exit(0),
         Err(ChefError::Compile) => exit(65),
         Err(_) => exit(70),
     }
