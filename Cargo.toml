@@ -5,6 +5,7 @@ edition = "2021"
 
 [profile.release]
 debug = true
+strip = false
 
 [features]
 debug_trace = []

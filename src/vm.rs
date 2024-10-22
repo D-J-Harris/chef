@@ -157,7 +157,7 @@ impl<'gc> State<'gc> {
     }
 
     fn do_step(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<bool> {
-        let operation = current_frame.function().chunk.code[current_frame.frame_ip];
+        let operation = read_operation(current_frame);
         current_frame.frame_ip += 1;
         #[cfg(feature = "debug_trace")]
         current_frame
@@ -165,82 +165,21 @@ impl<'gc> State<'gc> {
             .chunk
             .disassemble_instruction(current_frame.frame_ip - 1);
         match &operation {
-            Operation::Return => {
-                let result = self.pop();
-                self.close_upvalues(current_frame.stack_index)?;
-                if self.frame_count == 0 {
-                    return Ok(true);
-                }
-                // Unwind the current call frame from the stack.
-                self.stack_top = current_frame.stack_index;
-                *current_frame = self.pop_frame();
-                self.push(result)?;
-            }
-            Operation::Constant(index) => {
-                let value = read_constant(current_frame.function(), *index)?;
-                self.push(value)?
-            }
-            Operation::Negate => {
-                let mut constant = self.pop();
-                constant.negate()?;
-                self.push(constant)?;
-            }
-            Operation::Add => {
-                let (b, mut a) = (self.pop(), self.pop());
-                match (a, b) {
-                    (Value::String(a), Value::String(b)) => {
-                        let mut root = a.deref().clone();
-                        root.push_str(&b);
-                        self.push(Value::String(Gc::new(self.mc, root)))?;
-                    }
-                    _ => {
-                        a.add_assign(b)?;
-                        self.push(a)?
-                    }
-                }
-            }
-            Operation::Subtract => {
-                let (b, mut a) = (self.pop(), self.pop());
-                a.sub_assign(b)?;
-                self.push(a)?
-            }
-            Operation::Multiply => {
-                let (b, mut a) = (self.pop(), self.pop());
-                a.mul_assign(b)?;
-                self.push(a)?
-            }
-            Operation::Divide => {
-                let (b, mut a) = (self.pop(), self.pop());
-                a.div_assign(b)?;
-                self.push(a)?
-            }
-            Operation::Nil => self.push(Value::Nil)?,
-            Operation::True => self.push(Value::Boolean(true))?,
-            Operation::False => self.push(Value::Boolean(false))?,
-            Operation::Not => {
-                let constant = self.pop();
-                let result = constant.falsey();
-                self.push(Value::Boolean(result))?
-            }
-            Operation::Equal => {
-                let (b, a) = (self.pop(), self.pop());
-                let result = a.is_equal(b);
-                self.push(Value::Boolean(result))?
-            }
-            Operation::Greater => {
-                let (b, a) = (self.pop(), self.pop());
-                let result = a.is_greater(b)?;
-                self.push(Value::Boolean(result))?
-            }
-            Operation::Less => {
-                let (b, a) = (self.pop(), self.pop());
-                let result = a.is_less(b)?;
-                self.push(Value::Boolean(result))?
-            }
-            Operation::Print => {
-                let constant = self.pop();
-                println!("{constant}");
-            }
+            Operation::Return => return self.op_return(current_frame),
+            Operation::Constant(i) => self.op_constant(current_frame, *i)?,
+            Operation::Negate => self.op_negate()?,
+            Operation::Add => self.op_add()?,
+            Operation::Subtract => self.op_subtract()?,
+            Operation::Multiply => self.op_multiply()?,
+            Operation::Divide => self.op_divide()?,
+            Operation::Nil => self.op_nil()?,
+            Operation::True => self.op_true()?,
+            Operation::False => self.op_false()?,
+            Operation::Not => self.op_not()?,
+            Operation::Equal => self.op_equal()?,
+            Operation::Greater => self.op_greater()?,
+            Operation::Less => self.op_less()?,
+            Operation::Print => self.op_print(),
             Operation::Pop => drop(self.pop()),
             Operation::DefineGlobal(i) => self.op_define_global(current_frame, *i)?,
             Operation::GetGlobal(i) => self.op_get_global(current_frame, *i)?,
@@ -248,8 +187,8 @@ impl<'gc> State<'gc> {
             Operation::GetLocal(i) => self.op_get_local(current_frame, *i)?,
             Operation::SetLocal(i) => self.op_set_local(current_frame, *i)?,
             Operation::JumpIfFalse(offset) => self.op_jump_if_false(current_frame, *offset)?,
-            Operation::Jump(offset) => current_frame.frame_ip += *offset as usize,
-            Operation::Loop(offset) => current_frame.frame_ip -= *offset as usize + 1,
+            Operation::Jump(offset) => self.op_jump(current_frame, *offset),
+            Operation::Loop(offset) => self.op_loop(current_frame, *offset),
             Operation::Call(a) => self.op_call(current_frame, *a)?,
             Operation::Closure(i) => self.op_closure(current_frame, *i)?,
             Operation::GetUpvalue(i) => self.op_get_upvalue(current_frame, *i)?,
@@ -267,6 +206,146 @@ impl<'gc> State<'gc> {
             Operation::SuperInvoke(i, a) => self.op_super_invoke(current_frame, *i, *a)?,
         };
         Ok(false)
+    }
+
+    #[inline]
+    fn op_return(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<bool> {
+        let result = self.pop();
+        self.close_upvalues(current_frame.stack_index)?;
+        if self.frame_count == 0 {
+            return Ok(true);
+        }
+        // Unwind the current call frame from the stack.
+        self.stack_top = current_frame.stack_index;
+        *current_frame = self.pop_frame();
+        self.push(result)?;
+        Ok(false)
+    }
+
+    #[inline]
+    fn op_constant(
+        &mut self,
+        current_frame: &mut CallFrame<'gc>,
+        constant_index: u8,
+    ) -> InterpretResult<()> {
+        let value = read_constant(current_frame.function(), constant_index)?;
+        self.push(value)?;
+        Ok(())
+    }
+
+    #[inline]
+    fn op_negate(&mut self) -> InterpretResult<()> {
+        let mut constant = self.pop();
+        constant.negate()?;
+        self.push(constant)?;
+        Ok(())
+    }
+
+    #[inline]
+    fn op_add(&mut self) -> InterpretResult<()> {
+        let (b, mut a) = (self.pop(), self.pop());
+        match (a, b) {
+            (Value::String(a), Value::String(b)) => {
+                let mut root = a.deref().clone();
+                root.push_str(&b);
+                self.push(Value::String(Gc::new(self.mc, root)))?;
+            }
+            _ => {
+                a.add_assign(b)?;
+                self.push(a)?;
+            }
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn op_subtract(&mut self) -> InterpretResult<()> {
+        let (b, mut a) = (self.pop(), self.pop());
+        a.sub_assign(b)?;
+        self.push(a)?;
+        Ok(())
+    }
+
+    #[inline]
+    fn op_multiply(&mut self) -> InterpretResult<()> {
+        let (b, mut a) = (self.pop(), self.pop());
+        a.mul_assign(b)?;
+        self.push(a)?;
+        Ok(())
+    }
+
+    #[inline]
+    fn op_divide(&mut self) -> InterpretResult<()> {
+        let (b, mut a) = (self.pop(), self.pop());
+        a.div_assign(b)?;
+        self.push(a)?;
+        Ok(())
+    }
+
+    #[inline]
+    fn op_nil(&mut self) -> InterpretResult<()> {
+        self.push(Value::Nil)?;
+        Ok(())
+    }
+
+    #[inline]
+    fn op_true(&mut self) -> InterpretResult<()> {
+        self.push(Value::Boolean(true))?;
+        Ok(())
+    }
+
+    #[inline]
+    fn op_false(&mut self) -> InterpretResult<()> {
+        self.push(Value::Boolean(false))?;
+        Ok(())
+    }
+
+    #[inline]
+    fn op_not(&mut self) -> InterpretResult<()> {
+        let constant = self.pop();
+        let result = constant.falsey();
+        self.push(Value::Boolean(result))?;
+        Ok(())
+    }
+
+    #[inline]
+    fn op_equal(&mut self) -> InterpretResult<()> {
+        let (b, a) = (self.pop(), self.pop());
+        let result = a.is_equal(b);
+        self.push(Value::Boolean(result))?;
+        Ok(())
+    }
+
+    #[inline]
+    fn op_greater(&mut self) -> InterpretResult<()> {
+        let (b, a) = (self.pop(), self.pop());
+        let result = a.is_greater(b)?;
+        self.push(Value::Boolean(result))?;
+        Ok(())
+    }
+
+    #[inline]
+    fn op_less(&mut self) -> InterpretResult<()> {
+        let (b, a) = (self.pop(), self.pop());
+        let result = a.is_less(b)?;
+        self.push(Value::Boolean(result))?;
+        Ok(())
+    }
+
+    #[inline]
+    fn op_print(&mut self) {
+        let constant = self.pop();
+        println!("{constant}");
+    }
+
+    #[inline]
+    fn op_loop(&mut self, current_frame: &mut CallFrame<'gc>, offset: u8) {
+        current_frame.frame_ip -= offset as usize + 1;
+    }
+
+    #[inline]
+    fn op_jump(&mut self, current_frame: &mut CallFrame<'gc>, offset: u8) {
+        current_frame.frame_ip += offset as usize
     }
 
     #[inline]
@@ -379,15 +458,11 @@ impl<'gc> State<'gc> {
         let (upvalue_count, function) = (function.upvalue_count, function);
         let mut closure_object = ClosureObject::new(upvalue_count, function);
         for _ in 0..upvalue_count {
-            let Operation::ClosureIsLocalByte(is_local) =
-                current_frame.function().chunk.code[current_frame.frame_ip]
-            else {
+            let Operation::ClosureIsLocalByte(is_local) = read_operation(current_frame) else {
                 return Err(ChefError::ClosureOpcode);
             };
             current_frame.frame_ip += 1;
-            let Operation::ClosureIndexByte(index) =
-                current_frame.function().chunk.code[current_frame.frame_ip]
-            else {
+            let Operation::ClosureIndexByte(index) = read_operation(current_frame) else {
                 return Err(ChefError::ClosureOpcode);
             };
             current_frame.frame_ip += 1;
@@ -751,4 +826,9 @@ fn read_constant<'gc, 'a>(
         .get(index as usize)
         .ok_or(ChefError::OutOfBounds)?;
     Ok(*value)
+}
+
+#[inline]
+fn read_operation(current_frame: &CallFrame) -> Operation {
+    current_frame.function().chunk.code[current_frame.frame_ip]
 }
