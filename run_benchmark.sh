@@ -4,7 +4,7 @@
 BINARIES=("./target/release/chef")
 
 # Array of benchmark files
-BENCHMARK_FILES=("equality.lox")
+BENCHMARK_FILES=("binary_trees.lox" "equality.lox" "fib.lox" "instantiation.lox" "invocation.lox" "method_calls.lox" "properties.lox" "trees.lox" "zoo.lox")
 
 # Number of runs per test
 NUM_RUNS=5

@@ -45,8 +45,9 @@ impl<'gc> CallFrame<'gc> {
 
 pub struct State<'gc> {
     mc: &'gc Mutation<'gc>,
-    frames: Vec<CallFrame<'gc>>,
-    stack: Vec<Value<'gc>>,
+    frames: [Option<CallFrame<'gc>>; CALL_FRAMES_MAX_COUNT],
+    frame_count: usize,
+    stack: [Value<'gc>; STACK_VALUES_MAX_COUNT],
     stack_top: usize,
     upvalues: Vec<Gc<'gc, RefLock<UpvalueObject<'gc>>>>,
     pub(super) strings: StringInterner<'gc>,
@@ -74,8 +75,9 @@ impl<'gc> State<'gc> {
     pub fn new(mc: &'gc Mutation<'gc>, string_interner: StringInterner<'gc>) -> Self {
         Self {
             mc,
-            frames: Vec::with_capacity(CALL_FRAMES_MAX_COUNT),
-            stack: Vec::with_capacity(STACK_VALUES_MAX_COUNT),
+            frames: [None; CALL_FRAMES_MAX_COUNT],
+            frame_count: 0,
+            stack: [Value::Nil; STACK_VALUES_MAX_COUNT],
             stack_top: 0,
             upvalues: Vec::new(),
             strings: string_interner,
@@ -91,49 +93,51 @@ impl<'gc> State<'gc> {
     }
 
     fn reset(&mut self) {
-        self.stack.truncate(0);
-        self.frames.truncate(0);
+        let _ = std::mem::replace(&mut self.stack, [Value::Nil; STACK_VALUES_MAX_COUNT]);
+        let _ = std::mem::replace(&mut self.frames, [None; CALL_FRAMES_MAX_COUNT]);
         self.upvalues.truncate(0);
     }
 
     pub fn stack_error(&mut self) {
-        for frame in self.frames.iter().rev() {
+        for frame_count in (0..self.frame_count).rev() {
+            let frame = self.frames[frame_count].unwrap();
             frame.runtime_error_print()
         }
         self.reset();
     }
 
     pub(super) fn push_frame(&mut self, frame: CallFrame<'gc>) -> InterpretResult<()> {
-        if self.frames.len() == CALL_FRAMES_MAX_COUNT {
+        if self.frame_count == CALL_FRAMES_MAX_COUNT {
             return Err(ChefError::StackOverflow);
         }
-        self.frames.push(frame);
+        self.frames[self.frame_count] = Some(frame);
+        self.frame_count += 1;
         Ok(())
     }
 
     fn pop_frame(&mut self) -> CallFrame<'gc> {
-        let frame = self.frames.pop();
+        self.frame_count -= 1;
+        let frame = std::mem::replace(&mut self.frames[self.frame_count], None);
         frame.expect("No frame to pop from stack.")
     }
 
     pub(super) fn push(&mut self, value: Value<'gc>) -> InterpretResult<()> {
-        if self.stack.len() == STACK_VALUES_MAX_COUNT {
+        if self.stack_top == STACK_VALUES_MAX_COUNT {
             return Err(ChefError::StackOverflow);
         }
-        self.stack.push(value);
+        self.stack[self.stack_top] = value;
         self.stack_top += 1;
         Ok(())
     }
 
     fn pop(&mut self) -> Value<'gc> {
-        let value = self.stack.pop();
         self.stack_top -= 1;
-        value.expect("No value to pop from stack.")
+        std::mem::replace(&mut self.stack[self.stack_top], Value::Nil)
     }
 
     fn peek(&self, depth: usize) -> InterpretResult<&Value<'gc>> {
         self.stack
-            .get(self.stack.len() - 1 - depth)
+            .get(self.stack_top - 1 - depth)
             .ok_or(ChefError::OutOfBounds)
     }
 
@@ -156,18 +160,19 @@ impl<'gc> State<'gc> {
         let operation = current_frame.function().chunk.code[current_frame.frame_ip];
         current_frame.frame_ip += 1;
         #[cfg(feature = "debug_trace")]
-        current_function
+        current_frame
+            .function()
             .chunk
             .disassemble_instruction(current_frame.frame_ip - 1);
         match &operation {
             Operation::Return => {
                 let result = self.pop();
                 self.close_upvalues(current_frame.stack_index)?;
-                if self.frames.len() == 0 {
+                if self.frame_count == 0 {
                     return Ok(true);
                 }
                 // Unwind the current call frame from the stack.
-                self.stack.truncate(current_frame.stack_index);
+                self.stack_top = current_frame.stack_index;
                 *current_frame = self.pop_frame();
                 self.push(result)?;
             }
@@ -176,8 +181,9 @@ impl<'gc> State<'gc> {
                 self.push(value)?
             }
             Operation::Negate => {
-                let constant = self.stack.last_mut().unwrap();
-                constant.negate()?
+                let mut constant = self.pop();
+                constant.negate()?;
+                self.push(constant)?;
             }
             Operation::Add => {
                 let (b, mut a) = (self.pop(), self.pop());
@@ -336,7 +342,7 @@ impl<'gc> State<'gc> {
                 };
             }
             Operation::CloseUpvalue => {
-                self.close_upvalues(self.stack.len() - 1)?;
+                self.close_upvalues(self.stack_top - 1)?;
                 self.pop();
             }
             Operation::ClosureIsLocalByte(_) => unreachable!(),
@@ -437,7 +443,7 @@ impl<'gc> State<'gc> {
             return Err(ChefError::InstanceInvoke);
         };
         if let Some(field_value) = receiver.borrow().fields.get(&method) {
-            let index = self.stack.len() - argument_count as usize - 1;
+            let index = self.stack_top - argument_count as usize - 1;
             self.stack[index] = *field_value;
             self.call_value(argument_count)
         } else {
@@ -513,7 +519,7 @@ impl<'gc> State<'gc> {
         match callee {
             Value::NativeFunction(function) => {
                 let result = (function)(argument_count, self.stack_top - argument_count as usize);
-                self.stack.truncate(self.stack.len() - 1);
+                self.stack_top -= 1;
                 self.push(result)?;
                 Ok(None)
             }
@@ -524,7 +530,7 @@ impl<'gc> State<'gc> {
             Value::Class(class) => {
                 let instance = InstanceObject::new(class);
                 let instance = Value::Instance(Gc::new(self.mc, RefLock::new(instance)));
-                let index = self.stack.len() - argument_count as usize - 1;
+                let index = self.stack_top - argument_count as usize - 1;
                 self.stack[index] = instance;
                 let init_pointer = self.strings.intern(INIT_STRING);
                 if let Some(closure) = class.borrow().methods.get(&init_pointer) {
@@ -538,7 +544,7 @@ impl<'gc> State<'gc> {
             }
             Value::BoundMethod(bound_method) => {
                 let closure = bound_method.closure;
-                let index = self.stack.len() - argument_count as usize - 1;
+                let index = self.stack_top - argument_count as usize - 1;
                 self.stack[index] = Value::Instance(bound_method.receiver);
                 let call_frame = self.call(closure, argument_count)?;
                 Ok(Some(call_frame))
@@ -558,7 +564,7 @@ impl<'gc> State<'gc> {
         }
         Ok(CallFrame {
             closure,
-            stack_index: self.stack.len() - argument_count as usize - 1,
+            stack_index: self.stack_top - argument_count as usize - 1,
             frame_ip: 0,
         })
     }
