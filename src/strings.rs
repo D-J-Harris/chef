@@ -1,11 +1,12 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, hash::BuildHasherDefault};
 
+use ahash::AHasher;
 use gc_arena::{Collect, Collection, Gc, GcWeak, Mutation};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 
 pub struct StringInterner<'gc> {
     mc: &'gc Mutation<'gc>,
-    strings: HashMap<u64, GcWeak<'gc, String>>,
+    strings: HashMap<u64, GcWeak<'gc, String>, BuildHasherDefault<AHasher>>,
 }
 
 unsafe impl<'gc> Collect for StringInterner<'gc> {
@@ -38,7 +39,7 @@ impl<'gc> StringInterner<'gc> {
     pub fn new(mc: &'gc Mutation<'gc>) -> Self {
         Self {
             mc,
-            strings: HashMap::new(),
+            strings: HashMap::default(),
         }
     }
 
