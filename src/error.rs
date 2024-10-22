@@ -23,7 +23,7 @@ pub enum ChefError {
     #[error("Expected 0 arguments but got {0}.")]
     ClassArguments(u8),
     #[error("Undefined variable '{0}'.")]
-    UndefinedVariable(String), // TODO: better impl for error that takes Gc<String>
+    UndefinedVariable(String),
     #[error("Undefined property '{0}'.")]
     UndefinedProperty(String),
     #[error("Operand must be a number.")]

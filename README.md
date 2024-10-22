@@ -34,6 +34,7 @@ chef <.chef file>
 - [ ] Add string interning
 - [ ] Remove explicit checks for operations the VM should trust the compiler on
 - [ ] Can move upvalues (`is_local` and `index` information) to `Function` object, instead of emitting operations
+- [ ] Increase jump opcode distance (so original string benchmark test runs)
 
 ## Performance TODO
 

@@ -1,5 +1,6 @@
-use std::{collections::HashMap, ops::Deref};
+use std::{collections::HashMap, hash::BuildHasherDefault, ops::Deref};
 
+use ahash::AHasher;
 use gc_arena::{lock::RefLock, Collect, Gc};
 
 use crate::{chunk::Chunk, common::UPVALUES_MAX_COUNT, value::Value};
@@ -80,14 +81,14 @@ impl<'gc> UpvalueObject<'gc> {
 #[collect(no_drop)]
 pub struct ClassObject<'gc> {
     pub name: Gc<'gc, String>,
-    pub methods: HashMap<Gc<'gc, String>, Gc<'gc, ClosureObject<'gc>>>,
+    pub methods: HashMap<Gc<'gc, String>, Gc<'gc, ClosureObject<'gc>>, BuildHasherDefault<AHasher>>,
 }
 
 impl<'gc> ClassObject<'gc> {
     pub fn new(name: Gc<'gc, String>) -> Self {
         Self {
             name,
-            methods: HashMap::new(),
+            methods: HashMap::default(),
         }
     }
 
@@ -100,14 +101,14 @@ impl<'gc> ClassObject<'gc> {
 #[collect(no_drop)]
 pub struct InstanceObject<'gc> {
     pub class: Gc<'gc, RefLock<ClassObject<'gc>>>,
-    pub fields: HashMap<Gc<'gc, String>, Value<'gc>>,
+    pub fields: HashMap<Gc<'gc, String>, Value<'gc>, BuildHasherDefault<AHasher>>,
 }
 
 impl<'gc> InstanceObject<'gc> {
     pub fn new(class: Gc<'gc, RefLock<ClassObject<'gc>>>) -> Self {
         Self {
             class,
-            fields: HashMap::new(),
+            fields: HashMap::default(),
         }
     }
 }

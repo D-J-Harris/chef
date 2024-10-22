@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::hash::BuildHasherDefault;
 use std::ops::Deref;
 
+use ahash::AHasher;
 use gc_arena::lock::RefLock;
 use gc_arena::{Collect, Collection, Gc, Mutation};
 
@@ -48,7 +50,7 @@ pub struct State<'gc> {
     stack_top: usize,
     upvalues: Vec<Gc<'gc, RefLock<UpvalueObject<'gc>>>>,
     pub(super) strings: StringInterner<'gc>,
-    pub(super) identifiers: HashMap<Gc<'gc, String>, Value<'gc>>,
+    pub(super) identifiers: HashMap<Gc<'gc, String>, Value<'gc>, BuildHasherDefault<AHasher>>,
 }
 
 unsafe impl<'gc> Collect for State<'gc> {
@@ -70,8 +72,6 @@ unsafe impl<'gc> Collect for State<'gc> {
 
 impl<'gc> State<'gc> {
     pub fn new(mc: &'gc Mutation<'gc>, string_interner: StringInterner<'gc>) -> Self {
-        let identifiers = HashMap::new();
-
         Self {
             mc,
             frames: Vec::with_capacity(CALL_FRAMES_MAX_COUNT),
@@ -79,7 +79,7 @@ impl<'gc> State<'gc> {
             stack_top: 0,
             upvalues: Vec::new(),
             strings: string_interner,
-            identifiers,
+            identifiers: HashMap::default(),
         }
     }
 
@@ -250,7 +250,7 @@ impl<'gc> State<'gc> {
                 let constant = self
                     .identifiers
                     .get(&name)
-                    .ok_or(ChefError::UndefinedVariable(name.deref().clone()))?;
+                    .ok_or_else(|| ChefError::UndefinedVariable(name.deref().clone()))?;
                 self.push(*constant)?
             }
             Operation::SetGlobal(index) => {
@@ -260,7 +260,7 @@ impl<'gc> State<'gc> {
                 let constant = self.peek(0)?;
                 self.identifiers
                     .insert(name, *constant)
-                    .ok_or(ChefError::UndefinedVariable(name.deref().clone()))?;
+                    .ok_or_else(|| ChefError::UndefinedVariable(name.deref().clone()))?;
             }
             Operation::GetLocal(frame_index) => {
                 let stack_index = current_frame.stack_index + *frame_index as usize;
@@ -457,7 +457,7 @@ impl<'gc> State<'gc> {
             .borrow()
             .methods
             .get(&name)
-            .ok_or(ChefError::UndefinedProperty(name.deref().clone()))?;
+            .ok_or_else(|| ChefError::UndefinedProperty(name.deref().clone()))?;
         self.call(method, argument_count)
     }
 
@@ -572,7 +572,7 @@ impl<'gc> State<'gc> {
             .borrow()
             .methods
             .get(&name)
-            .ok_or(ChefError::UndefinedProperty(name.deref().clone()))?;
+            .ok_or_else(|| ChefError::UndefinedProperty(name.deref().clone()))?;
         let receiver = match self.pop() {
             Value::Instance(instance) => instance,
             _ => return Err(ChefError::NoInstanceOnStack),
