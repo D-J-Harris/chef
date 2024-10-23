@@ -51,8 +51,8 @@ pub struct State<'gc> {
     stack: [Value<'gc>; STACK_VALUES_MAX_COUNT],
     stack_top: usize,
     upvalues: Vec<Gc<'gc, RefLock<UpvalueObject<'gc>>>>,
-    pub(super) strings: StringInterner<'gc>,
-    pub(super) identifiers: HashMap<Gc<'gc, String>, Value<'gc>, BuildHasherDefault<AHasher>>,
+    pub strings: StringInterner<'gc>,
+    pub identifiers: HashMap<Gc<'gc, String>, Value<'gc>, BuildHasherDefault<AHasher>>,
 }
 
 unsafe impl<'gc> Collect for State<'gc> {
@@ -66,8 +66,8 @@ unsafe impl<'gc> Collect for State<'gc> {
     fn trace(&self, cc: &Collection) {
         self.frames.trace(cc);
         self.stack.trace(cc);
-        self.stack_top.trace(cc);
         self.upvalues.trace(cc);
+        self.strings.trace(cc);
         self.identifiers.trace(cc);
     }
 }
@@ -107,7 +107,7 @@ impl<'gc> State<'gc> {
         self.reset();
     }
 
-    pub(super) fn push_frame(&mut self, frame: CallFrame<'gc>) -> InterpretResult<()> {
+    pub fn push_frame(&mut self, frame: CallFrame<'gc>) -> InterpretResult<()> {
         if self.frame_count == CALL_FRAMES_MAX_COUNT {
             return Err(ChefError::StackOverflow);
         }
@@ -122,7 +122,7 @@ impl<'gc> State<'gc> {
         frame.expect("No frame to pop from stack.")
     }
 
-    pub(super) fn push(&mut self, value: Value<'gc>) -> InterpretResult<()> {
+    pub fn push(&mut self, value: Value<'gc>) -> InterpretResult<()> {
         if self.stack_top == STACK_VALUES_MAX_COUNT {
             return Err(ChefError::StackOverflow);
         }
@@ -133,17 +133,15 @@ impl<'gc> State<'gc> {
 
     fn pop(&mut self) -> Value<'gc> {
         self.stack_top -= 1;
-        std::mem::replace(&mut self.stack[self.stack_top], Value::Nil)
+        self.stack[self.stack_top]
     }
 
-    fn peek(&self, depth: usize) -> InterpretResult<&Value<'gc>> {
-        self.stack
-            .get(self.stack_top - 1 - depth)
-            .ok_or(ChefError::OutOfBounds)
+    fn peek(&self, depth: usize) -> Value<'gc> {
+        self.stack[self.stack_top - 1 - depth]
     }
 
     // Returns boolean indicating whether the current run is complete
-    pub(super) fn run(&mut self, steps: u8) -> InterpretResult<bool> {
+    pub fn run(&mut self, steps: u32) -> InterpretResult<bool> {
         let mut current_frame = self.pop_frame();
         for _ in 0..steps {
             let result = self.do_step(&mut current_frame);
@@ -185,14 +183,14 @@ impl<'gc> State<'gc> {
             Operation::GetGlobal => self.op_get_global(current_frame)?,
             Operation::SetGlobal => self.op_set_global(current_frame)?,
             Operation::GetLocal => self.op_get_local(current_frame)?,
-            Operation::SetLocal => self.op_set_local(current_frame)?,
-            Operation::JumpIfFalse => self.op_jump_if_false(current_frame)?,
+            Operation::SetLocal => self.op_set_local(current_frame),
+            Operation::JumpIfFalse => self.op_jump_if_false(current_frame),
             Operation::Jump => self.op_jump(current_frame),
             Operation::Loop => self.op_loop(current_frame),
             Operation::Call => self.op_call(current_frame)?,
             Operation::Closure => self.op_closure(current_frame)?,
             Operation::GetUpvalue => self.op_get_upvalue(current_frame)?,
-            Operation::SetUpvalue => self.op_set_upvalue(current_frame)?,
+            Operation::SetUpvalue => self.op_set_upvalue(current_frame),
             Operation::CloseUpvalue => self.op_close_upvalues()?,
             Operation::Class => self.op_class(current_frame)?,
             Operation::GetProperty => self.op_get_property(current_frame)?,
@@ -346,13 +344,12 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_jump_if_false(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+    fn op_jump_if_false(&mut self, current_frame: &mut CallFrame<'gc>) {
         let offset = read_u16(current_frame);
-        let value = self.peek(0)?;
+        let value = self.peek(0);
         if value.falsey() {
             current_frame.frame_ip += offset as usize;
         }
-        Ok(())
     }
 
     #[inline]
@@ -386,9 +383,9 @@ impl<'gc> State<'gc> {
         let Value::String(name) = read_constant(current_frame.function(), constant_index)? else {
             return Err(ChefError::ConstantStringNotFound);
         };
-        let constant = self.peek(0)?;
+        let constant = self.peek(0);
         self.identifiers
-            .insert(name, *constant)
+            .insert(name, constant)
             .ok_or_else(|| ChefError::UndefinedVariable(name.deref().clone()))?;
         Ok(())
     }
@@ -403,12 +400,11 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_set_local(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+    fn op_set_local(&mut self, current_frame: &mut CallFrame<'gc>) {
         let frame_index = read_byte(current_frame);
         let stack_index = current_frame.stack_index + frame_index as usize;
-        let replacement_value = self.peek(0)?;
-        self.stack[stack_index] = *replacement_value;
-        Ok(())
+        let replacement_value = self.peek(0);
+        self.stack[stack_index] = replacement_value;
     }
 
     #[inline]
@@ -458,16 +454,15 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_set_upvalue(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+    fn op_set_upvalue(&mut self, current_frame: &mut CallFrame<'gc>) {
         let upvalue_index = read_byte(current_frame) as usize;
-        let replacement_value = self.peek(0)?;
+        let replacement_value = self.peek(0);
         let upvalue = current_frame.closure().upvalues[upvalue_index];
         let mut upvalue_borrow = upvalue.borrow_mut(self.mc);
         match &mut *upvalue_borrow {
-            UpvalueObject::Open(value_slot) => self.stack[*value_slot] = *replacement_value,
-            UpvalueObject::Closed(value) => *value = *replacement_value,
+            UpvalueObject::Open(value_slot) => self.stack[*value_slot] = replacement_value,
+            UpvalueObject::Closed(value) => *value = replacement_value,
         };
-        Ok(())
     }
 
     #[inline]
@@ -491,7 +486,7 @@ impl<'gc> State<'gc> {
     #[inline]
     fn op_get_property(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
         let constant_index = read_byte(current_frame);
-        let Value::Instance(instance) = self.peek(0)? else {
+        let Value::Instance(instance) = self.peek(0) else {
             return Err(ChefError::InstanceGetProperty);
         };
         let Value::String(name) = read_constant(current_frame.function(), constant_index)? else {
@@ -512,7 +507,7 @@ impl<'gc> State<'gc> {
     #[inline]
     fn op_set_property(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
         let constant_index = read_byte(current_frame);
-        let Value::Instance(instance) = *self.peek(1)? else {
+        let Value::Instance(instance) = self.peek(1) else {
             return Err(ChefError::InstanceSetProperty);
         };
         let Value::String(name) = read_constant(current_frame.function(), constant_index)? else {
@@ -551,10 +546,10 @@ impl<'gc> State<'gc> {
 
     #[inline]
     fn op_inherit(&mut self) -> InterpretResult<()> {
-        let Value::Class(superclass) = self.peek(1)? else {
+        let Value::Class(superclass) = self.peek(1) else {
             return Err(ChefError::ConstantSuperclassNotFound);
         };
-        let Value::Class(subclass) = self.peek(0)? else {
+        let Value::Class(subclass) = self.peek(0) else {
             return Err(ChefError::ConstantClassNotFound);
         };
         for (name, method) in superclass.borrow().methods.iter() {
@@ -599,7 +594,7 @@ impl<'gc> State<'gc> {
         method: Gc<'gc, String>,
         argument_count: u8,
     ) -> InterpretResult<Option<CallFrame<'gc>>> {
-        let Value::Instance(receiver) = *self.peek(argument_count as usize)? else {
+        let Value::Instance(receiver) = self.peek(argument_count as usize) else {
             return Err(ChefError::InstanceInvoke);
         };
         if let Some(field_value) = receiver.borrow().fields.get(&method) {
@@ -633,7 +628,7 @@ impl<'gc> State<'gc> {
         let Value::Closure(closure) = self.pop() else {
             return Err(ChefError::ConstantClosureNotFound);
         };
-        let Value::Class(class) = self.peek(0)? else {
+        let Value::Class(class) = self.peek(0) else {
             return Err(ChefError::ConstantClassNotFound);
         };
         class.borrow_mut(self.mc).add_method(name, closure);
@@ -680,7 +675,7 @@ impl<'gc> State<'gc> {
 
     #[inline]
     fn call_value(&mut self, argument_count: u8) -> InterpretResult<Option<CallFrame<'gc>>> {
-        let callee = *self.peek(argument_count as usize)?;
+        let callee = self.peek(argument_count as usize);
         match callee {
             Value::NativeFunction(function) => {
                 let result = (function)(argument_count, self.stack_top - argument_count as usize);
@@ -719,7 +714,7 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    pub(super) fn call(
+    pub fn call(
         &mut self,
         closure: Gc<'gc, ClosureObject<'gc>>,
         argument_count: u8,

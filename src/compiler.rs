@@ -5,6 +5,7 @@ use gc_arena::{Gc, Mutation};
 
 use crate::common::{FUNCTION_ARITY_MAX_COUNT, LOCALS_MAX_COUNT, SUPER_STRING, UPVALUES_MAX_COUNT};
 use crate::objects::{FunctionKind, FunctionObject};
+use crate::rules::{ParseFunctionKind, Precedence};
 use crate::scanner::{Token, TokenKind};
 use crate::value::Value;
 use crate::vm::State;
@@ -12,8 +13,6 @@ use crate::{
     chunk::{Chunk, Operation},
     scanner::Scanner,
 };
-
-mod precedence;
 
 pub struct Compiler<'source, 'gc> {
     mc: &'gc Mutation<'gc>,
@@ -50,6 +49,24 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
 
     fn current_chunk(&self) -> &Chunk<'gc> {
         &self.context.function.chunk
+    }
+
+    fn init_compiler(&mut self, function_kind: FunctionKind) {
+        let name = self.previous.lexeme;
+        let compiler_context = CompilerContext::new(name, function_kind);
+        let enclosing_compiler_context = std::mem::replace(&mut self.context, compiler_context);
+        self.context.enclosing = Some(Box::new(enclosing_compiler_context));
+    }
+
+    fn end_compiler(&mut self) -> Option<(FunctionObject<'gc>, [Upvalue; UPVALUES_MAX_COUNT])> {
+        self.emit_return();
+        #[cfg(feature = "debug_code")]
+        self.context.debug();
+
+        self.context.enclosing.take().map(|parent| {
+            let context = std::mem::replace(&mut self.context, *parent);
+            (context.function, context.upvalues)
+        })
     }
 
     pub fn compile(mut self) -> Option<Gc<'gc, FunctionObject<'gc>>> {
@@ -162,13 +179,6 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         self.define_variable(constant_index);
     }
 
-    fn init_compiler(&mut self, function_kind: FunctionKind) {
-        let name = self.previous.lexeme;
-        let compiler_context = CompilerContext::new(name, function_kind);
-        let enclosing_compiler_context = std::mem::replace(&mut self.context, compiler_context);
-        self.context.enclosing = Some(Box::new(enclosing_compiler_context));
-    }
-
     fn function(&mut self, function_kind: FunctionKind) {
         self.init_compiler(function_kind);
         self.begin_scope();
@@ -279,7 +289,6 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     }
 
     fn constant_identifier(&mut self, token_name: &str) -> Option<u8> {
-        // intern the string
         let string = self.state.strings.intern(token_name);
         self.context
             .function
@@ -548,17 +557,6 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         self.had_error = true;
     }
 
-    fn end_compiler(&mut self) -> Option<(FunctionObject<'gc>, [Upvalue; UPVALUES_MAX_COUNT])> {
-        self.emit_return();
-        #[cfg(feature = "debug_code")]
-        self.context.debug();
-
-        self.context.enclosing.take().map(|parent| {
-            let context = std::mem::replace(&mut self.context, *parent);
-            (context.function, context.upvalues)
-        })
-    }
-
     fn emit_return(&mut self) {
         match self.context.function.kind {
             FunctionKind::Initializer => {
@@ -590,13 +588,279 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             self.advance();
         }
     }
+
+    pub fn parse_precedence(&mut self, precedence: Precedence) {
+        self.advance();
+        let prefix_rule = Precedence::get_rule(self.previous.kind).prefix;
+        if prefix_rule == ParseFunctionKind::None {
+            self.error("Expect expression.");
+            return;
+        };
+        self.execute_rule(prefix_rule, precedence);
+
+        while precedence <= Precedence::get_rule(self.current.kind).precedence {
+            self.advance();
+            let infix_rule = Precedence::get_rule(self.previous.kind).infix;
+            self.execute_rule(infix_rule, precedence);
+        }
+
+        if Self::can_assign(precedence) && self.r#match(TokenKind::Equal) {
+            self.error("Invalid assignment target.");
+        }
+    }
+
+    fn can_assign(precedence: Precedence) -> bool {
+        precedence <= Precedence::Assignment
+    }
+
+    fn execute_rule(&mut self, kind: ParseFunctionKind, precedence: Precedence) {
+        match kind {
+            ParseFunctionKind::None => {}
+            ParseFunctionKind::Grouping => Self::grouping(self),
+            ParseFunctionKind::Unary => Self::unary(self),
+            ParseFunctionKind::Binary => Self::binary(self),
+            ParseFunctionKind::Number => Self::number(self),
+            ParseFunctionKind::Literal => Self::literal(self),
+            ParseFunctionKind::String => Self::string(self),
+            ParseFunctionKind::Variable => Self::variable(self, Self::can_assign(precedence)),
+            ParseFunctionKind::And => Self::and(self),
+            ParseFunctionKind::Or => Self::or(self),
+            ParseFunctionKind::Call => Self::call(self),
+            ParseFunctionKind::Dot => Self::dot(self, Self::can_assign(precedence)),
+            ParseFunctionKind::This => Self::this(self),
+            ParseFunctionKind::Super => Self::super_(self),
+        }
+    }
+
+    pub fn expression(&mut self) {
+        self.parse_precedence(Precedence::Assignment);
+    }
+
+    fn grouping(&mut self) {
+        self.expression();
+        self.consume(TokenKind::RightParen, "Expect ')' after expression.");
+    }
+
+    fn unary(&mut self) {
+        let operator_kind = self.previous.kind;
+        self.parse_precedence(Precedence::Unary);
+        match operator_kind {
+            TokenKind::Minus => self.emit(Operation::Negate as u8),
+            TokenKind::Bang => self.emit(Operation::Not as u8),
+            _ => unreachable!(),
+        }
+    }
+
+    fn binary(&mut self) {
+        let operator_kind = self.previous.kind;
+        let parse_rule = Precedence::get_rule(operator_kind);
+        self.parse_precedence(parse_rule.precedence.next());
+        match operator_kind {
+            TokenKind::Plus => self.emit(Operation::Add as u8),
+            TokenKind::Minus => self.emit(Operation::Subtract as u8),
+            TokenKind::Star => self.emit(Operation::Multiply as u8),
+            TokenKind::Slash => self.emit(Operation::Divide as u8),
+            TokenKind::EqualEqual => self.emit(Operation::Equal as u8),
+            TokenKind::Greater => self.emit(Operation::Greater as u8),
+            TokenKind::Less => self.emit(Operation::Less as u8),
+            TokenKind::BangEqual => {
+                self.emit(Operation::Equal as u8);
+                self.emit(Operation::Not as u8);
+            }
+            TokenKind::GreaterEqual => {
+                self.emit(Operation::Less as u8);
+                self.emit(Operation::Not as u8);
+            }
+            TokenKind::LessEqual => {
+                self.emit(Operation::Greater as u8);
+                self.emit(Operation::Not as u8);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn number(&mut self) {
+        let Ok(constant) = self.previous.lexeme.parse() else {
+            self.error("Could not cast lexeme to number");
+            return;
+        };
+        self.emit_constant(Value::Number(constant));
+    }
+
+    fn literal(&mut self) {
+        match self.previous.kind {
+            TokenKind::Nil => self.emit(Operation::Nil as u8),
+            TokenKind::True => self.emit(Operation::True as u8),
+            TokenKind::False => self.emit(Operation::False as u8),
+            _ => unreachable!(),
+        }
+    }
+
+    fn string(&mut self) {
+        let lexeme_len = self.previous.lexeme.len();
+        let lexeme = &self.previous.lexeme[1..{ lexeme_len - 1 }];
+        let string = self.state.strings.intern(lexeme);
+        self.emit_constant(Value::String(string));
+    }
+
+    pub fn variable(&mut self, can_assign: bool) {
+        self.named_variable(self.previous.lexeme, can_assign);
+    }
+
+    pub fn named_variable(&mut self, token_name: &str, can_assign: bool) {
+        let (get_operation_bytes, set_operation_bytes) =
+            match self.context.resolve_local(token_name) {
+                Ok(Some(constant_index)) => (
+                    (Operation::GetLocal as u8, constant_index),
+                    (Operation::SetLocal as u8, constant_index),
+                ),
+                Ok(None) => match self.context.resolve_upvalue(token_name) {
+                    Ok(Some(upvalue_index)) => (
+                        (Operation::GetUpvalue as u8, upvalue_index),
+                        (Operation::SetUpvalue as u8, upvalue_index),
+                    ),
+                    Ok(None) => {
+                        let Some(index) = self.constant_identifier(token_name) else {
+                            return;
+                        };
+                        (
+                            (Operation::GetGlobal as u8, index),
+                            (Operation::SetGlobal as u8, index),
+                        )
+                    }
+                    Err(e) => {
+                        self.error(&e);
+                        return;
+                    }
+                },
+                Err(e) => {
+                    self.error(&e);
+                    return;
+                }
+            };
+
+        if can_assign && self.r#match(TokenKind::Equal) {
+            self.expression();
+            self.emit(set_operation_bytes.0);
+            self.emit(set_operation_bytes.1);
+        } else {
+            self.emit(get_operation_bytes.0);
+            self.emit(get_operation_bytes.1);
+        }
+    }
+
+    fn and(&mut self) {
+        let and_jump = self.emit_jump(Operation::JumpIfFalse);
+        self.emit(Operation::Pop as u8);
+        self.parse_precedence(Precedence::And);
+        self.patch_jump(and_jump);
+    }
+
+    fn or(&mut self) {
+        let else_jump = self.emit_jump(Operation::JumpIfFalse);
+        let end_jump = self.emit_jump(Operation::Jump);
+        self.patch_jump(else_jump);
+        self.emit(Operation::Pop as u8);
+        self.parse_precedence(Precedence::Or);
+        self.patch_jump(end_jump);
+    }
+
+    fn call(&mut self) {
+        let Some(argument_count) = self.argument_list() else {
+            self.error("Can't have more than 255 arguments.");
+            return;
+        };
+        self.emit(Operation::Call as u8);
+        self.emit(argument_count);
+    }
+
+    fn argument_list(&mut self) -> Option<u8> {
+        let mut argument_count: u8 = 0;
+        if !self.check(TokenKind::RightParen) {
+            loop {
+                self.expression();
+                argument_count = match argument_count.checked_add(1) {
+                    Some(count) => count,
+                    None => return None,
+                };
+
+                if !self.r#match(TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        self.consume(TokenKind::RightParen, "Expect ')' after arguments.");
+        Some(argument_count)
+    }
+
+    fn dot(&mut self, can_assign: bool) {
+        self.consume(TokenKind::Identifier, "Expect property name after '.'.");
+        let Some(name_index) = self.constant_identifier(self.previous.lexeme) else {
+            return;
+        };
+        if can_assign && self.r#match(TokenKind::Equal) {
+            self.expression();
+            self.emit(Operation::SetProperty as u8);
+            self.emit(name_index);
+        } else if self.r#match(TokenKind::LeftParen) {
+            let Some(argument_count) = self.argument_list() else {
+                self.error("Can't have more than 255 arguments.");
+                return;
+            };
+            self.emit(Operation::Invoke as u8);
+            self.emit(name_index);
+            self.emit(argument_count);
+        } else {
+            self.emit(Operation::GetProperty as u8);
+            self.emit(name_index);
+        }
+    }
+
+    fn this(&mut self) {
+        if self.class_compiler.is_none() {
+            self.error("Can't use 'this' outside of a class.");
+            return;
+        }
+        self.variable(false);
+    }
+
+    fn super_(&mut self) {
+        match &self.class_compiler {
+            None => self.error("Can't use 'super' outside of a class."),
+            Some(class) => {
+                if !class.has_superclass {
+                    self.error("Can't use 'super' in a class with no superclass.");
+                }
+            }
+        }
+        self.consume(TokenKind::Dot, "Expect '.' after 'super'.");
+        self.consume(TokenKind::Identifier, "Expect superclass method name.");
+        let Some(name_index) = self.constant_identifier(self.previous.lexeme) else {
+            return;
+        };
+        self.named_variable("this", false);
+        if self.r#match(TokenKind::LeftParen) {
+            let Some(argument_count) = self.argument_list() else {
+                self.error("Can't have more than 255 arguments.");
+                return;
+            };
+            self.named_variable(SUPER_STRING, false);
+            self.emit(Operation::SuperInvoke as u8);
+            self.emit(name_index);
+            self.emit(argument_count);
+        } else {
+            self.named_variable(SUPER_STRING, false);
+            self.emit(Operation::GetSuper as u8);
+            self.emit(name_index);
+        }
+    }
 }
 
 #[derive(Debug, Default)]
 struct Local<'source> {
     pub depth: Option<u8>,
     pub name: &'source str,
-    pub is_captured: bool, // defaults to false
+    pub is_captured: bool,
 }
 
 impl Local<'_> {
@@ -639,6 +903,53 @@ impl<'source, 'gc> CompilerContext<'source, 'gc> {
             locals_count: 1,
             upvalues,
         }
+    }
+
+    fn add_upvalue(&mut self, index: u8, is_local: bool) -> Result<Option<u8>, String> {
+        let upvalue_count = &mut self.function.upvalue_count;
+        if *upvalue_count == UPVALUES_MAX_COUNT {
+            return Err("Too many closure variables in function.".into());
+        }
+        for i in 0..*upvalue_count {
+            let upvalue = &mut self.upvalues[i];
+            if upvalue.index == index && upvalue.is_local == is_local {
+                // Safety: we know i < 256
+                return Ok(Some(i as u8));
+            }
+        }
+        let to_return = *upvalue_count as u8;
+        self.upvalues[*upvalue_count].is_local = is_local;
+        self.upvalues[*upvalue_count].index = index;
+        *upvalue_count += 1;
+        Ok(Some(to_return))
+    }
+
+    fn resolve_local(&self, token_name: &str) -> Result<Option<u8>, String> {
+        for (index, local) in self.locals.iter().enumerate().rev() {
+            if token_name == local.name {
+                if local.depth.is_none() {
+                    return Err("Can't read local variable in its own initializer.".into());
+                }
+                return Ok(Some(index as u8));
+            }
+        }
+        // Assume global variable
+        Ok(None)
+    }
+
+    fn resolve_upvalue(&mut self, token_name: &str) -> Result<Option<u8>, String> {
+        if let Some(parent_compiler) = self.enclosing.as_deref_mut() {
+            if let Some(local_index) = parent_compiler.resolve_local(token_name)? {
+                parent_compiler.locals[local_index as usize]
+                    .borrow_mut()
+                    .is_captured = true;
+                return self.add_upvalue(local_index, true);
+            }
+            if let Some(upvalue_index) = parent_compiler.resolve_upvalue(token_name)? {
+                return self.add_upvalue(upvalue_index, false);
+            }
+        }
+        Ok(None)
     }
 
     #[cfg(feature = "debug_code")]

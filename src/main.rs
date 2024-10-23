@@ -1,3 +1,6 @@
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use std::env;
 use std::io;
 use std::io::Write;
@@ -6,6 +9,7 @@ use std::process::exit;
 use compiler::Compiler;
 use error::ChefError;
 use error::InterpretResult;
+use gc_arena::arena::CollectionPhase;
 use gc_arena::Arena;
 use gc_arena::Gc;
 use gc_arena::Rootable;
@@ -20,6 +24,7 @@ mod compiler;
 mod error;
 mod native_functions;
 mod objects;
+mod rules;
 mod scanner;
 mod strings;
 mod value;
@@ -40,7 +45,7 @@ impl<'source> Chef {
     }
 
     fn interpret(&mut self, source: &'source str) -> InterpretResult<()> {
-        const COLLECTOR_STEPS: u8 = 255;
+        const COLLECTOR_STEPS: u32 = 4096;
 
         self.state.mutate_root(|mc, state| {
             let compiler = Compiler::new(mc, source, state);
@@ -54,7 +59,7 @@ impl<'source> Chef {
         #[cfg(feature = "debug_trace")]
         println!("====== Executing      ======");
 
-        let mut collector_granularity: f64 = 1024.0 * 1024.0;
+        const COLLECTOR_GRANULARITY: f64 = 1024.0;
         loop {
             match self.state.mutate_root(|_, state| {
                 let result = state.run(COLLECTOR_STEPS);
@@ -65,11 +70,15 @@ impl<'source> Chef {
                 result
             }) {
                 Ok(false) => {
-                    if self.state.metrics().allocation_debt() > collector_granularity {
-                        collector_granularity = collector_granularity * 2.0;
-                        self.state.collect_all();
+                    if self.state.metrics().allocation_debt() > COLLECTOR_GRANULARITY {
+                        if self.state.collection_phase() == CollectionPhase::Sweeping {
+                            self.state.collect_debt();
+                        } else {
+                            // Immediately transition to `CollectionPhase::Sweeping`.
+                            self.state.mark_all().unwrap().start_sweeping();
+                        }
+                        continue;
                     }
-                    continue;
                 }
                 result => break result.map(|_| ()),
             }

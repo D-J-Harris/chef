@@ -4,6 +4,12 @@ version = "0.0.0"
 edition = "2021"
 
 [profile.release]
+codegen-units = 1
+lto = "fat"
+panic = "abort"
+
+[profile.profiling]
+inherits = "release"
 debug = true
 strip = false
 
@@ -13,10 +19,11 @@ debug_code = []
 
 [dependencies]
 thiserror = "1.0.64"
-gc-arena = "0.5.3"
+gc-arena = { version = "0.5.3", features = ["allocator-api2", "hashbrown"] }
 ahash = "0.8.11"
 num-derive = "0.4.2"
-num-traits  ="0.2.19"
+num-traits = "0.2.19"
+mimalloc = "0.1.43"
 
 [dev-dependencies]
 regex = "1.11.0"

@@ -131,6 +131,6 @@ impl<'gc> BoundMethod<'gc> {
 
 impl<'gc> PartialEq for BoundMethod<'gc> {
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(&self.receiver, &other.receiver) && std::ptr::eq(&self.closure, &other.closure)
+        Gc::ptr_eq(self.receiver, other.receiver) && Gc::ptr_eq(self.closure, other.closure)
     }
 }
