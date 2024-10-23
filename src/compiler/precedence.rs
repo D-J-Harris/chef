@@ -3,7 +3,7 @@ use std::u8;
 
 use crate::{
     chunk::Operation,
-    common::{JUMP_MAX_COUNT, SUPER_STRING, UPVALUES_MAX_COUNT},
+    common::{SUPER_STRING, UPVALUES_MAX_COUNT},
     scanner::TokenKind,
     value::Value,
 };
@@ -67,8 +67,8 @@ impl Compiler<'_, '_> {
         let operator_kind = self.previous.kind;
         self.parse_precedence(Precedence::Unary);
         match operator_kind {
-            TokenKind::Minus => self.emit(Operation::Negate),
-            TokenKind::Bang => self.emit(Operation::Not),
+            TokenKind::Minus => self.emit(Operation::Negate as u8),
+            TokenKind::Bang => self.emit(Operation::Not as u8),
             _ => unreachable!(),
         }
     }
@@ -78,24 +78,24 @@ impl Compiler<'_, '_> {
         let parse_rule = Precedence::get_rule(operator_kind);
         self.parse_precedence(parse_rule.precedence.next());
         match operator_kind {
-            TokenKind::Plus => self.emit(Operation::Add),
-            TokenKind::Minus => self.emit(Operation::Subtract),
-            TokenKind::Star => self.emit(Operation::Multiply),
-            TokenKind::Slash => self.emit(Operation::Divide),
-            TokenKind::EqualEqual => self.emit(Operation::Equal),
-            TokenKind::Greater => self.emit(Operation::Greater),
-            TokenKind::Less => self.emit(Operation::Less),
+            TokenKind::Plus => self.emit(Operation::Add as u8),
+            TokenKind::Minus => self.emit(Operation::Subtract as u8),
+            TokenKind::Star => self.emit(Operation::Multiply as u8),
+            TokenKind::Slash => self.emit(Operation::Divide as u8),
+            TokenKind::EqualEqual => self.emit(Operation::Equal as u8),
+            TokenKind::Greater => self.emit(Operation::Greater as u8),
+            TokenKind::Less => self.emit(Operation::Less as u8),
             TokenKind::BangEqual => {
-                self.emit(Operation::Equal);
-                self.emit(Operation::Not);
+                self.emit(Operation::Equal as u8);
+                self.emit(Operation::Not as u8);
             }
             TokenKind::GreaterEqual => {
-                self.emit(Operation::Less);
-                self.emit(Operation::Not);
+                self.emit(Operation::Less as u8);
+                self.emit(Operation::Not as u8);
             }
             TokenKind::LessEqual => {
-                self.emit(Operation::Greater);
-                self.emit(Operation::Not);
+                self.emit(Operation::Greater as u8);
+                self.emit(Operation::Not as u8);
             }
             _ => unreachable!(),
         }
@@ -111,9 +111,9 @@ impl Compiler<'_, '_> {
 
     fn literal(&mut self) {
         match self.previous.kind {
-            TokenKind::Nil => self.emit(Operation::Nil),
-            TokenKind::True => self.emit(Operation::True),
-            TokenKind::False => self.emit(Operation::False),
+            TokenKind::Nil => self.emit(Operation::Nil as u8),
+            TokenKind::True => self.emit(Operation::True as u8),
+            TokenKind::False => self.emit(Operation::False as u8),
             _ => unreachable!(),
         }
     }
@@ -130,60 +130,61 @@ impl Compiler<'_, '_> {
     }
 
     pub fn named_variable(&mut self, token_name: &str, can_assign: bool) {
-        let (get_operation, set_operation) = match resolve_local(&self.context, token_name) {
-            Ok(Some(constant_index)) => (
-                Operation::GetLocal(constant_index),
-                Operation::SetLocal(constant_index),
-            ),
-            Ok(None) => match resolve_upvalue(&mut self.context, token_name) {
-                Ok(Some(upvalue_index)) => (
-                    Operation::GetUpvalue(upvalue_index),
-                    Operation::SetUpvalue(upvalue_index),
+        let (get_operation_bytes, set_operation_bytes) =
+            match resolve_local(&self.context, token_name) {
+                Ok(Some(constant_index)) => (
+                    (Operation::GetLocal as u8, constant_index),
+                    (Operation::SetLocal as u8, constant_index),
                 ),
-                Ok(None) => {
-                    let Some(index) = self.constant_identifier(token_name) else {
-                        self.error("Reached constant limit.");
+                Ok(None) => match resolve_upvalue(&mut self.context, token_name) {
+                    Ok(Some(upvalue_index)) => (
+                        (Operation::GetUpvalue as u8, upvalue_index),
+                        (Operation::SetUpvalue as u8, upvalue_index),
+                    ),
+                    Ok(None) => {
+                        let Some(index) = self.constant_identifier(token_name) else {
+                            return;
+                        };
+                        (
+                            (Operation::GetGlobal as u8, index),
+                            (Operation::SetGlobal as u8, index),
+                        )
+                    }
+                    Err(e) => {
+                        self.error(&e);
                         return;
-                    };
-                    (Operation::GetGlobal(index), Operation::SetGlobal(index))
-                }
+                    }
+                },
                 Err(e) => {
                     self.error(&e);
                     return;
                 }
-            },
-            Err(e) => {
-                self.error(&e);
-                return;
-            }
-        };
+            };
 
         if can_assign && self.r#match(TokenKind::Equal) {
             self.expression();
-            self.emit(set_operation);
+            self.emit(set_operation_bytes.0);
+            self.emit(set_operation_bytes.1);
         } else {
-            self.emit(get_operation);
+            self.emit(get_operation_bytes.0);
+            self.emit(get_operation_bytes.1);
         }
     }
 
     fn and(&mut self) {
-        self.emit(Operation::JumpIfFalse(JUMP_MAX_COUNT));
-        let operations_before_and = self.current_chunk().code.len();
-        self.emit(Operation::Pop);
+        let and_jump = self.emit_jump(Operation::JumpIfFalse);
+        self.emit(Operation::Pop as u8);
         self.parse_precedence(Precedence::And);
-        self.patch_jump(operations_before_and);
+        self.patch_jump(and_jump);
     }
 
     fn or(&mut self) {
-        self.emit(Operation::JumpIfFalse(JUMP_MAX_COUNT));
-        let operations_before_else_jump = self.current_chunk().code.len();
-        self.emit(Operation::Jump(JUMP_MAX_COUNT));
-        let operations_before_end_jump = self.current_chunk().code.len();
-
-        self.patch_jump(operations_before_else_jump);
-        self.emit(Operation::Pop);
+        let else_jump = self.emit_jump(Operation::JumpIfFalse);
+        let end_jump = self.emit_jump(Operation::Jump);
+        self.patch_jump(else_jump);
+        self.emit(Operation::Pop as u8);
         self.parse_precedence(Precedence::Or);
-        self.patch_jump(operations_before_end_jump);
+        self.patch_jump(end_jump);
     }
 
     fn call(&mut self) {
@@ -191,7 +192,8 @@ impl Compiler<'_, '_> {
             self.error("Can't have more than 255 arguments.");
             return;
         };
-        self.emit(Operation::Call(argument_count));
+        self.emit(Operation::Call as u8);
+        self.emit(argument_count);
     }
 
     fn argument_list(&mut self) -> Option<u8> {
@@ -216,20 +218,23 @@ impl Compiler<'_, '_> {
     fn dot(&mut self, can_assign: bool) {
         self.consume(TokenKind::Identifier, "Expect property name after '.'.");
         let Some(name_index) = self.constant_identifier(self.previous.lexeme) else {
-            self.error(&format!("No constant with name {}", self.previous.lexeme));
             return;
         };
         if can_assign && self.r#match(TokenKind::Equal) {
             self.expression();
-            self.emit(Operation::SetProperty(name_index));
+            self.emit(Operation::SetProperty as u8);
+            self.emit(name_index);
         } else if self.r#match(TokenKind::LeftParen) {
             let Some(argument_count) = self.argument_list() else {
                 self.error("Can't have more than 255 arguments.");
                 return;
             };
-            self.emit(Operation::Invoke(name_index, argument_count));
+            self.emit(Operation::Invoke as u8);
+            self.emit(name_index);
+            self.emit(argument_count);
         } else {
-            self.emit(Operation::GetProperty(name_index));
+            self.emit(Operation::GetProperty as u8);
+            self.emit(name_index);
         }
     }
 
@@ -253,7 +258,6 @@ impl Compiler<'_, '_> {
         self.consume(TokenKind::Dot, "Expect '.' after 'super'.");
         self.consume(TokenKind::Identifier, "Expect superclass method name.");
         let Some(name_index) = self.constant_identifier(self.previous.lexeme) else {
-            self.error(&format!("No constant with name {}", self.previous.lexeme));
             return;
         };
         self.named_variable("this", false);
@@ -263,10 +267,13 @@ impl Compiler<'_, '_> {
                 return;
             };
             self.named_variable(SUPER_STRING, false);
-            self.emit(Operation::SuperInvoke(name_index, argument_count));
+            self.emit(Operation::SuperInvoke as u8);
+            self.emit(name_index);
+            self.emit(argument_count);
         } else {
             self.named_variable(SUPER_STRING, false);
-            self.emit(Operation::GetSuper(name_index));
+            self.emit(Operation::GetSuper as u8);
+            self.emit(name_index);
         }
     }
 }

@@ -15,6 +15,8 @@ debug_code = []
 thiserror = "1.0.64"
 gc-arena = "0.5.3"
 ahash = "0.8.11"
+num-derive = "0.4.2"
+num-traits  ="0.2.19"
 
 [dev-dependencies]
 regex = "1.11.0"

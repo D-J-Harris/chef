@@ -5,6 +5,7 @@ use std::ops::Deref;
 use ahash::AHasher;
 use gc_arena::lock::RefLock;
 use gc_arena::{Collect, Collection, Gc, Mutation};
+use num_traits::FromPrimitive;
 
 use crate::chunk::Operation;
 use crate::common::{CALL_FRAMES_MAX_COUNT, INIT_STRING, STACK_VALUES_MAX_COUNT};
@@ -157,16 +158,15 @@ impl<'gc> State<'gc> {
     }
 
     fn do_step(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<bool> {
-        let operation = read_operation(current_frame);
-        current_frame.frame_ip += 1;
+        let byte = read_byte(current_frame);
         #[cfg(feature = "debug_trace")]
         current_frame
             .function()
             .chunk
             .disassemble_instruction(current_frame.frame_ip - 1);
-        match &operation {
+        match Operation::from_u8(byte).expect("Invalid opcode.") {
             Operation::Return => return self.op_return(current_frame),
-            Operation::Constant(i) => self.op_constant(current_frame, *i)?,
+            Operation::Constant => self.op_constant(current_frame)?,
             Operation::Negate => self.op_negate()?,
             Operation::Add => self.op_add()?,
             Operation::Subtract => self.op_subtract()?,
@@ -181,29 +181,27 @@ impl<'gc> State<'gc> {
             Operation::Less => self.op_less()?,
             Operation::Print => self.op_print(),
             Operation::Pop => drop(self.pop()),
-            Operation::DefineGlobal(i) => self.op_define_global(current_frame, *i)?,
-            Operation::GetGlobal(i) => self.op_get_global(current_frame, *i)?,
-            Operation::SetGlobal(i) => self.op_set_global(current_frame, *i)?,
-            Operation::GetLocal(i) => self.op_get_local(current_frame, *i)?,
-            Operation::SetLocal(i) => self.op_set_local(current_frame, *i)?,
-            Operation::JumpIfFalse(offset) => self.op_jump_if_false(current_frame, *offset)?,
-            Operation::Jump(offset) => self.op_jump(current_frame, *offset),
-            Operation::Loop(offset) => self.op_loop(current_frame, *offset),
-            Operation::Call(a) => self.op_call(current_frame, *a)?,
-            Operation::Closure(i) => self.op_closure(current_frame, *i)?,
-            Operation::GetUpvalue(i) => self.op_get_upvalue(current_frame, *i)?,
-            Operation::SetUpvalue(i) => self.op_set_upvalue(current_frame, *i)?,
+            Operation::DefineGlobal => self.op_define_global(current_frame)?,
+            Operation::GetGlobal => self.op_get_global(current_frame)?,
+            Operation::SetGlobal => self.op_set_global(current_frame)?,
+            Operation::GetLocal => self.op_get_local(current_frame)?,
+            Operation::SetLocal => self.op_set_local(current_frame)?,
+            Operation::JumpIfFalse => self.op_jump_if_false(current_frame)?,
+            Operation::Jump => self.op_jump(current_frame),
+            Operation::Loop => self.op_loop(current_frame),
+            Operation::Call => self.op_call(current_frame)?,
+            Operation::Closure => self.op_closure(current_frame)?,
+            Operation::GetUpvalue => self.op_get_upvalue(current_frame)?,
+            Operation::SetUpvalue => self.op_set_upvalue(current_frame)?,
             Operation::CloseUpvalue => self.op_close_upvalues()?,
-            Operation::ClosureIsLocalByte(_) => unreachable!(),
-            Operation::ClosureIndexByte(_) => unreachable!(),
-            Operation::Class(i) => self.op_class(current_frame, *i)?,
-            Operation::GetProperty(i) => self.op_get_property(current_frame, *i)?,
-            Operation::SetProperty(i) => self.op_set_property(current_frame, *i)?,
-            Operation::Method(i) => self.op_method(current_frame, *i)?,
-            Operation::Invoke(i, a) => self.op_invoke(current_frame, *i, *a)?,
+            Operation::Class => self.op_class(current_frame)?,
+            Operation::GetProperty => self.op_get_property(current_frame)?,
+            Operation::SetProperty => self.op_set_property(current_frame)?,
+            Operation::Method => self.op_method(current_frame)?,
+            Operation::Invoke => self.op_invoke(current_frame)?,
             Operation::Inherit => self.op_inherit()?,
-            Operation::GetSuper(i) => self.op_get_super(current_frame, *i)?,
-            Operation::SuperInvoke(i, a) => self.op_super_invoke(current_frame, *i, *a)?,
+            Operation::GetSuper => self.op_get_super(current_frame)?,
+            Operation::SuperInvoke => self.op_super_invoke(current_frame)?,
         };
         Ok(false)
     }
@@ -223,11 +221,8 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_constant(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        constant_index: u8,
-    ) -> InterpretResult<()> {
+    fn op_constant(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let constant_index = read_byte(current_frame);
         let value = read_constant(current_frame.function(), constant_index)?;
         self.push(value)?;
         Ok(())
@@ -339,21 +334,20 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_loop(&mut self, current_frame: &mut CallFrame<'gc>, offset: u8) {
-        current_frame.frame_ip -= offset as usize + 1;
+    fn op_loop(&mut self, current_frame: &mut CallFrame<'gc>) {
+        let offset = read_u16(current_frame);
+        current_frame.frame_ip -= offset as usize;
     }
 
     #[inline]
-    fn op_jump(&mut self, current_frame: &mut CallFrame<'gc>, offset: u8) {
+    fn op_jump(&mut self, current_frame: &mut CallFrame<'gc>) {
+        let offset = read_u16(current_frame);
         current_frame.frame_ip += offset as usize
     }
 
     #[inline]
-    fn op_jump_if_false(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        offset: u8,
-    ) -> InterpretResult<()> {
+    fn op_jump_if_false(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let offset = read_u16(current_frame);
         let value = self.peek(0)?;
         if value.falsey() {
             current_frame.frame_ip += offset as usize;
@@ -362,11 +356,8 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_define_global(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        constant_index: u8,
-    ) -> InterpretResult<()> {
+    fn op_define_global(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let constant_index = read_byte(current_frame);
         let Value::String(name) = read_constant(current_frame.function(), constant_index)? else {
             return Err(ChefError::ConstantStringNotFound);
         };
@@ -376,11 +367,8 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_get_global(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        constant_index: u8,
-    ) -> InterpretResult<()> {
+    fn op_get_global(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let constant_index = read_byte(current_frame);
         let Value::String(name) = read_constant(current_frame.function(), constant_index)? else {
             return Err(ChefError::ConstantStringNotFound);
         };
@@ -393,11 +381,8 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_set_global(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        constant_index: u8,
-    ) -> InterpretResult<()> {
+    fn op_set_global(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let constant_index = read_byte(current_frame);
         let Value::String(name) = read_constant(current_frame.function(), constant_index)? else {
             return Err(ChefError::ConstantStringNotFound);
         };
@@ -409,11 +394,8 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_get_local(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        frame_index: u8,
-    ) -> InterpretResult<()> {
+    fn op_get_local(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let frame_index = read_byte(current_frame);
         let stack_index = current_frame.stack_index + frame_index as usize;
         let value = self.stack[stack_index];
         self.push(value)?;
@@ -421,11 +403,8 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_set_local(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        frame_index: u8,
-    ) -> InterpretResult<()> {
+    fn op_set_local(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let frame_index = read_byte(current_frame);
         let stack_index = current_frame.stack_index + frame_index as usize;
         let replacement_value = self.peek(0)?;
         self.stack[stack_index] = *replacement_value;
@@ -433,11 +412,8 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_call(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        argument_count: u8,
-    ) -> InterpretResult<()> {
+    fn op_call(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let argument_count = read_byte(current_frame);
         if let Some(call_frame) = self.call_value(argument_count)? {
             self.push_frame(*current_frame)?;
             *current_frame = call_frame;
@@ -446,11 +422,8 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_closure(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        constant_index: u8,
-    ) -> InterpretResult<()> {
+    fn op_closure(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let constant_index = read_byte(current_frame);
         let Value::Function(function) = read_constant(current_frame.function(), constant_index)?
         else {
             return Err(ChefError::ConstantFunctionNotFound);
@@ -458,14 +431,8 @@ impl<'gc> State<'gc> {
         let (upvalue_count, function) = (function.upvalue_count, function);
         let mut closure_object = ClosureObject::new(upvalue_count, function);
         for _ in 0..upvalue_count {
-            let Operation::ClosureIsLocalByte(is_local) = read_operation(current_frame) else {
-                return Err(ChefError::ClosureOpcode);
-            };
-            current_frame.frame_ip += 1;
-            let Operation::ClosureIndexByte(index) = read_operation(current_frame) else {
-                return Err(ChefError::ClosureOpcode);
-            };
-            current_frame.frame_ip += 1;
+            let is_local = read_byte(current_frame) != 0;
+            let index = read_byte(current_frame);
             let upvalue = if is_local {
                 let upvalue_slot = current_frame.stack_index + index as usize;
                 self.capture_upvalue(upvalue_slot)
@@ -479,13 +446,9 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_get_upvalue(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        upvalue_index: u8,
-    ) -> InterpretResult<()> {
-        let slot = upvalue_index as usize;
-        let upvalue = current_frame.closure().upvalues[slot];
+    fn op_get_upvalue(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let upvalue_index = read_byte(current_frame) as usize;
+        let upvalue = current_frame.closure().upvalues[upvalue_index];
         let value = match &*upvalue.borrow() {
             UpvalueObject::Open(index) => self.stack[*index],
             UpvalueObject::Closed(value) => *value,
@@ -495,14 +458,10 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_set_upvalue(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        upvalue_index: u8,
-    ) -> InterpretResult<()> {
-        let slot = upvalue_index as usize;
+    fn op_set_upvalue(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let upvalue_index = read_byte(current_frame) as usize;
         let replacement_value = self.peek(0)?;
-        let upvalue = current_frame.closure().upvalues[slot];
+        let upvalue = current_frame.closure().upvalues[upvalue_index];
         let mut upvalue_borrow = upvalue.borrow_mut(self.mc);
         match &mut *upvalue_borrow {
             UpvalueObject::Open(value_slot) => self.stack[*value_slot] = *replacement_value,
@@ -519,11 +478,8 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_class(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        constant_index: u8,
-    ) -> InterpretResult<()> {
+    fn op_class(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let constant_index = read_byte(current_frame);
         let Value::String(name) = read_constant(current_frame.function(), constant_index)? else {
             return Err(ChefError::ConstantClassNotFound);
         };
@@ -533,11 +489,8 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_get_property(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        constant_index: u8,
-    ) -> InterpretResult<()> {
+    fn op_get_property(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let constant_index = read_byte(current_frame);
         let Value::Instance(instance) = self.peek(0)? else {
             return Err(ChefError::InstanceGetProperty);
         };
@@ -557,11 +510,8 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_set_property(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        constant_index: u8,
-    ) -> InterpretResult<()> {
+    fn op_set_property(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let constant_index = read_byte(current_frame);
         let Value::Instance(instance) = *self.peek(1)? else {
             return Err(ChefError::InstanceSetProperty);
         };
@@ -576,11 +526,8 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_method(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        constant_index: u8,
-    ) -> InterpretResult<()> {
+    fn op_method(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let constant_index = read_byte(current_frame);
         let Value::String(name) = read_constant(current_frame.function(), constant_index)? else {
             return Err(ChefError::ConstantStringNotFound);
         };
@@ -589,12 +536,9 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_invoke(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        constant_index: u8,
-        argument_count: u8,
-    ) -> InterpretResult<()> {
+    fn op_invoke(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let constant_index = read_byte(current_frame);
+        let argument_count = read_byte(current_frame);
         let Value::String(method) = read_constant(current_frame.function(), constant_index)? else {
             return Err(ChefError::ConstantStringNotFound);
         };
@@ -621,11 +565,8 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_get_super(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        constant_index: u8,
-    ) -> InterpretResult<()> {
+    fn op_get_super(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let constant_index = read_byte(current_frame);
         let Value::String(method) = read_constant(current_frame.function(), constant_index)? else {
             return Err(ChefError::ConstantStringNotFound);
         };
@@ -637,12 +578,9 @@ impl<'gc> State<'gc> {
     }
 
     #[inline]
-    fn op_super_invoke(
-        &mut self,
-        current_frame: &mut CallFrame<'gc>,
-        constant_index: u8,
-        argument_count: u8,
-    ) -> InterpretResult<()> {
+    fn op_super_invoke(&mut self, current_frame: &mut CallFrame<'gc>) -> InterpretResult<()> {
+        let constant_index = read_byte(current_frame);
+        let argument_count = read_byte(current_frame);
         let Value::String(method) = read_constant(current_frame.function(), constant_index)? else {
             return Err(ChefError::ConstantStringNotFound);
         };
@@ -829,6 +767,15 @@ fn read_constant<'gc, 'a>(
 }
 
 #[inline]
-fn read_operation(current_frame: &CallFrame) -> Operation {
-    current_frame.function().chunk.code[current_frame.frame_ip]
+fn read_byte(current_frame: &mut CallFrame) -> u8 {
+    let byte = current_frame.function().chunk.code[current_frame.frame_ip];
+    current_frame.frame_ip += 1;
+    byte
+}
+
+fn read_u16(current_frame: &mut CallFrame) -> usize {
+    current_frame.frame_ip += 2;
+    let byte_1 = current_frame.function().chunk.code[current_frame.frame_ip - 2];
+    let byte_2 = current_frame.function().chunk.code[current_frame.frame_ip - 1];
+    u16::from_le_bytes([byte_1, byte_2]) as usize
 }

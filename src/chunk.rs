@@ -1,16 +1,16 @@
 use std::fmt::Debug;
 
 use gc_arena::Collect;
+use num_derive::FromPrimitive;
+use num_traits::FromPrimitive;
 
-use crate::{
-    common::{CONSTANTS_MAX_COUNT, U8_COUNT_USIZE},
-    value::Value,
-};
+use crate::{common::CONSTANTS_MAX_COUNT, value::Value};
 
-#[derive(Debug, Copy, Clone, Collect)]
+#[derive(Debug, Copy, Clone, Collect, FromPrimitive)]
 #[collect(require_static)]
+#[repr(u8)]
 pub enum Operation {
-    Return,
+    Return = 1,
     Negate,
     Add,
     Subtract,
@@ -27,36 +27,35 @@ pub enum Operation {
     Pop,
     CloseUpvalue,
     Inherit,
-    Call(u8),
-    Constant(u8),
-    Class(u8),
-    DefineGlobal(u8),
-    GetGlobal(u8),
-    SetGlobal(u8),
-    GetLocal(u8),
-    SetLocal(u8),
-    GetProperty(u8),
-    SetProperty(u8),
-    GetUpvalue(u8),
-    SetUpvalue(u8),
-    JumpIfFalse(u8),
-    Jump(u8),
-    Loop(u8),
-    Closure(u8),
-    ClosureIsLocalByte(bool),
-    ClosureIndexByte(u8),
-    Method(u8),
-    Invoke(u8, u8),
-    SuperInvoke(u8, u8),
-    GetSuper(u8),
+    Call,
+    Constant,
+    Class,
+    DefineGlobal,
+    GetGlobal,
+    SetGlobal,
+    GetLocal,
+    SetLocal,
+    GetProperty,
+    SetProperty,
+    GetUpvalue,
+    SetUpvalue,
+    JumpIfFalse,
+    Jump,
+    Loop,
+    Closure,
+    Method,
+    Invoke,
+    SuperInvoke,
+    GetSuper,
 }
 
 #[derive(Debug, Collect)]
 #[collect(no_drop)]
 pub struct Chunk<'gc> {
-    pub code: Vec<Operation>,
+    pub code: Vec<u8>,
     pub lines: Vec<usize>,
-    pub constants: Vec<Value<'gc>>,
+    pub constants: [Value<'gc>; CONSTANTS_MAX_COUNT],
+    pub constants_count: usize,
 }
 
 impl<'gc> Chunk<'gc> {
@@ -64,72 +63,67 @@ impl<'gc> Chunk<'gc> {
         Self {
             code: Vec::new(),
             lines: Vec::new(),
-            constants: Vec::with_capacity(CONSTANTS_MAX_COUNT),
+            constants: [Value::Nil; CONSTANTS_MAX_COUNT],
+            constants_count: 0,
         }
     }
 
-    pub fn write(&mut self, operation: Operation, line: usize) {
-        self.code.push(operation);
+    pub fn write(&mut self, byte: u8, line: usize) {
+        self.code.push(byte);
         self.lines.push(line);
     }
 
     /// Add constant to [`Chunk`], and return its index.
     /// Returns `None` if adding a new constant would overflow the constants stack.
     pub fn add_constant(&mut self, value: Value<'gc>) -> Option<u8> {
-        if self.constants.len() == U8_COUNT_USIZE {
+        if self.constants_count == CONSTANTS_MAX_COUNT {
             return None;
-        };
-        let index = self.constants.len();
-        self.constants.push(value);
-        Some(index as u8)
+        }
+        self.constants[self.constants_count] = value;
+        self.constants_count += 1;
+        Some((self.constants_count - 1) as u8)
     }
 }
 
-#[cfg(feature = "debug_code")]
+#[allow(unused)]
 impl Chunk<'_> {
     pub fn disassemble(&self, name: &str) {
         println!("====== Chunk {name} ======");
-        for offset in 0..self.code.len() {
-            self.disassemble_instruction(offset)
+        let mut offset = 0;
+        while offset < self.code.len() {
+            offset = self.disassemble_instruction(offset)
         }
         println!();
     }
-}
 
-#[cfg(any(feature = "debug_code", feature = "debug_trace"))]
-impl Chunk<'_> {
-    pub fn disassemble_instruction(&self, offset: usize) {
-        let operation = self.code[offset];
+    pub fn disassemble_instruction(&self, offset: usize) -> usize {
+        let byte = self.code[offset];
         let line = self.lines[offset];
         if offset > 0 && line == self.lines[offset - 1] {
             print!("{offset:0>4} {:>9}  ", "|");
         } else {
             print!("{offset:0>4} {line:>9}  ");
         }
+        let operation = Operation::from_u8(byte).expect("Invalid opcode.");
         match operation {
-            Operation::Constant(index)
-            | Operation::DefineGlobal(index)
-            | Operation::GetGlobal(index)
-            | Operation::SetGlobal(index)
-            | Operation::GetProperty(index)
-            | Operation::SetProperty(index)
-            | Operation::Closure(index)
-            | Operation::Class(index)
-            | Operation::Method(index)
-            | Operation::GetSuper(index) => {
-                self.disassemble_constant_instruction(operation, index as usize)
+            Operation::Constant
+            | Operation::DefineGlobal
+            | Operation::GetGlobal
+            | Operation::SetGlobal
+            | Operation::GetProperty
+            | Operation::SetProperty
+            | Operation::Closure
+            | Operation::Class
+            | Operation::Method
+            | Operation::GetSuper => self.disassemble_constant_instruction(operation, offset),
+            Operation::GetLocal
+            | Operation::SetLocal
+            | Operation::Call
+            | Operation::GetUpvalue
+            | Operation::SetUpvalue => self.disassemble_byte_instruction(operation, offset),
+            Operation::JumpIfFalse | Operation::Jump | Operation::Loop => {
+                self.disassemble_jump_instruction(operation, offset)
             }
-            Operation::GetLocal(slot_value)
-            | Operation::SetLocal(slot_value)
-            | Operation::Call(slot_value)
-            | Operation::GetUpvalue(slot_value)
-            | Operation::SetUpvalue(slot_value) => {
-                self.disassemble_byte_instruction(operation, slot_value as usize)
-            }
-            Operation::JumpIfFalse(jump) | Operation::Jump(jump) => {
-                self.disassemble_jump_instruction(operation, jump, false)
-            }
-            Operation::Loop(jump) => self.disassemble_jump_instruction(operation, jump, true),
             Operation::Negate
             | Operation::Add
             | Operation::Subtract
@@ -146,46 +140,50 @@ impl Chunk<'_> {
             | Operation::Pop
             | Operation::Return
             | Operation::CloseUpvalue
-            | Operation::Inherit => self.disassemble_simple_instruction(operation),
-            Operation::ClosureIsLocalByte(is_local) => match is_local {
-                true => println!("Local Value:"),
-                false => println!("Upvalue:"),
-            },
-            Operation::ClosureIndexByte(index) => println!("Index {}", index),
-            Operation::Invoke(index, argument_count)
-            | Operation::SuperInvoke(index, argument_count) => {
-                self.disassemble_invoke_instruction(index as usize, argument_count)
+            | Operation::Inherit => self.disassemble_simple_instruction(operation, offset),
+            Operation::Invoke | Operation::SuperInvoke => {
+                self.disassemble_invoke_instruction(operation, offset)
             }
         }
     }
 
-    fn disassemble_simple_instruction(&self, operation: Operation) {
+    fn disassemble_simple_instruction(&self, operation: Operation, offset: usize) -> usize {
         println!("{operation:?}");
+        offset + 1
     }
 
-    fn disassemble_constant_instruction(&self, operation: Operation, constant_index: usize) {
-        let constant = self.constants.get(constant_index).unwrap();
-        println!("{operation:?} [constant: {constant}]");
+    fn disassemble_constant_instruction(&self, operation: Operation, offset: usize) -> usize {
+        let constant_index = self.code[offset + 1] as usize;
+        let constant = self.constants[constant_index];
+        println!("{: <14} [constant: {constant}]", format!("{operation:?}"));
+        offset + 2
     }
 
-    fn disassemble_byte_instruction(&self, operation: Operation, slot_value: usize) {
-        println!("{operation:?} [slot: {slot_value}]");
-    }
-
-    fn disassemble_jump_instruction(
-        &self,
-        operation: Operation,
-        jump: u8,
-        is_jump_backwards: bool,
-    ) {
+    fn disassemble_byte_instruction(&self, operation: Operation, offset: usize) -> usize {
+        let stack_index = self.code[offset + 1];
         println!(
-            "{operation:?} [jump: {}, backwards: {}]",
-            jump, is_jump_backwards
+            "{: <14} [stack_index: {stack_index}]",
+            format!("{operation:?}")
         );
+        offset + 2
     }
 
-    fn disassemble_invoke_instruction(&self, index: usize, argument_count: u8) {
-        let constant = self.constants.get(index).unwrap();
-        println!("Invoke ({argument_count} args) [constant: {constant}]");
+    fn disassemble_jump_instruction(&self, operation: Operation, offset: usize) -> usize {
+        let byte_1 = self.code[offset + 1];
+        let byte_2 = self.code[offset + 2];
+        let jump_offset = u16::from_le_bytes([byte_1, byte_2]);
+        println!("{: <14} [offset: {jump_offset}]", format!("{operation:?}"));
+        offset + 3
+    }
+
+    fn disassemble_invoke_instruction(&self, operation: Operation, offset: usize) -> usize {
+        let constant_index = self.code[offset + 1] as usize;
+        let argument_count = self.code[offset + 2];
+        let constant = self.constants[constant_index];
+        println!(
+            "{: <14} [args: {argument_count}, constant: {constant}]",
+            format!("{operation:?}")
+        );
+        offset + 3
     }
 }

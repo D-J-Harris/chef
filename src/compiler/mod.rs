@@ -3,10 +3,7 @@ use std::u8;
 
 use gc_arena::{Gc, Mutation};
 
-use crate::common::{
-    FUNCTION_ARITY_MAX_COUNT, JUMP_MAX_COUNT, JUMP_MAX_COUNT_USIZE, LOCALS_MAX_COUNT, SUPER_STRING,
-    UPVALUES_MAX_COUNT,
-};
+use crate::common::{FUNCTION_ARITY_MAX_COUNT, LOCALS_MAX_COUNT, SUPER_STRING, UPVALUES_MAX_COUNT};
 use crate::objects::{FunctionKind, FunctionObject};
 use crate::scanner::{Token, TokenKind};
 use crate::value::Value;
@@ -101,13 +98,13 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     fn class_declaration(&mut self) {
         self.consume(TokenKind::Identifier, "Expect class name.");
         let class_name = self.previous.lexeme;
-        let Some(name_constant_index) = self.constant_identifier(class_name) else {
-            self.error("No constants defined.");
+        let Some(constant_index) = self.constant_identifier(class_name) else {
             return;
         };
         self.declare_variable();
-        self.emit(Operation::Class(name_constant_index));
-        self.define_variable(name_constant_index);
+        self.emit(Operation::Class as u8);
+        self.emit(constant_index);
+        self.define_variable(constant_index);
 
         let current_class_compiler = self.class_compiler.take();
         let class_compiler = Box::new(ClassCompiler::new(current_class_compiler));
@@ -124,7 +121,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             self.add_local(SUPER_STRING);
             self.define_variable(0);
             self.named_variable(class_name, false);
-            self.emit(Operation::Inherit);
+            self.emit(Operation::Inherit as u8);
             self.class_compiler.as_mut().unwrap().has_superclass = true;
         }
 
@@ -134,7 +131,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             self.method();
         }
         self.consume(TokenKind::RightBrace, "Expect '}' after class body.");
-        self.emit(Operation::Pop);
+        self.emit(Operation::Pop as u8);
         let current_class_compiler = self.class_compiler.take().unwrap();
         if current_class_compiler.has_superclass {
             self.end_scope();
@@ -145,7 +142,6 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     fn method(&mut self) {
         self.consume(TokenKind::Identifier, "Expect method name.");
         let Some(constant_index) = self.constant_identifier(self.previous.lexeme) else {
-            self.error("No constants defined.");
             return;
         };
         let function_kind = match self.previous.lexeme {
@@ -153,12 +149,12 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             _ => FunctionKind::Method,
         };
         self.function(function_kind);
-        self.emit(Operation::Method(constant_index));
+        self.emit(Operation::Method as u8);
+        self.emit(constant_index);
     }
 
     fn fun_declaration(&mut self) {
         let Some(constant_index) = self.parse_variable("Expect function name.") else {
-            self.error("Reached constant limit.");
             return;
         };
         self.mark_initialized();
@@ -187,7 +183,6 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
                 }
                 *current_arity += 1;
                 let Some(constant_index) = self.parse_variable("Expect parameter name.") else {
-                    self.error("Reached constant limit.");
                     return;
                 };
                 self.define_variable(constant_index);
@@ -206,7 +201,6 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             return;
         };
         let upvalue_count = function.upvalue_count;
-
         let Some(constant_index) = self
             .context
             .function
@@ -216,24 +210,24 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             self.error("Too many constants in one chunk.");
             return;
         };
-        self.emit(Operation::Closure(constant_index));
+        self.emit(Operation::Closure as u8);
+        self.emit(constant_index);
 
         // emit bytes for variable number of closure upvalues
         for upvalue in upvalues.iter().take(upvalue_count) {
-            self.emit(Operation::ClosureIsLocalByte(upvalue.is_local));
-            self.emit(Operation::ClosureIndexByte(upvalue.index));
+            self.emit(upvalue.is_local as u8);
+            self.emit(upvalue.index);
         }
     }
 
     fn var_declaration(&mut self) {
         let Some(constant_index) = self.parse_variable("Expect variable name.") else {
-            self.error("Reached constant limit.");
             return;
         };
         if self.r#match(TokenKind::Equal) {
             self.expression();
         } else {
-            self.emit(Operation::Nil);
+            self.emit(Operation::Nil as u8);
         }
         self.consume(TokenKind::Semicolon, "Expect ';' after value.");
         self.define_variable(constant_index);
@@ -299,7 +293,8 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             self.mark_initialized();
             return;
         }
-        self.emit(Operation::DefineGlobal(constant_index));
+        self.emit(Operation::DefineGlobal as u8);
+        self.emit(constant_index);
     }
 
     fn mark_initialized(&mut self) {
@@ -343,9 +338,9 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
                 }
             }
             if self.context.locals[self.context.locals_count - 1].is_captured {
-                self.emit(Operation::CloseUpvalue);
+                self.emit(Operation::CloseUpvalue as u8);
             } else {
-                self.emit(Operation::Pop);
+                self.emit(Operation::Pop as u8);
             }
             self.context.locals_count -= 1;
             self.context.locals[self.context.locals_count].reset();
@@ -362,26 +357,23 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     fn print_statement(&mut self) {
         self.expression();
         self.consume(TokenKind::Semicolon, "Expect ';' after value.");
-        self.emit(Operation::Print);
+        self.emit(Operation::Print as u8);
     }
 
     fn if_statement(&mut self) {
         self.consume(TokenKind::LeftParen, "Expect '(' after 'if'.");
         self.expression();
         self.consume(TokenKind::RightParen, "Expect ')' after condition.");
-
-        self.emit(Operation::JumpIfFalse(JUMP_MAX_COUNT));
-        let num_operations_if = self.current_chunk().code.len();
-        self.emit(Operation::Pop);
+        let then_jump = self.emit_jump(Operation::JumpIfFalse);
+        self.emit(Operation::Pop as u8);
         self.statement();
-        self.emit(Operation::Jump(JUMP_MAX_COUNT));
-        let num_operations_else = self.current_chunk().code.len();
-        self.patch_jump(num_operations_if);
-        self.emit(Operation::Pop);
+        let else_jump = self.emit_jump(Operation::Jump);
+        self.patch_jump(then_jump);
+        self.emit(Operation::Pop as u8);
         if self.r#match(TokenKind::Else) {
             self.statement();
         }
-        self.patch_jump(num_operations_else);
+        self.patch_jump(else_jump);
     }
 
     fn return_statement(&mut self) {
@@ -398,47 +390,42 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             }
             self.expression();
             self.consume(TokenKind::Semicolon, "Expect ';' after return value.");
-            self.emit(Operation::Return);
+            self.emit(Operation::Return as u8);
         }
     }
 
-    fn patch_jump(&mut self, num_operations_before: usize) {
-        let num_operations_after = self.current_chunk().code.len();
-        if num_operations_after - num_operations_before > JUMP_MAX_COUNT_USIZE {
+    fn emit_jump(&mut self, operation: Operation) -> usize {
+        self.emit(operation as u8);
+        self.emit(u8::MAX);
+        self.emit(u8::MAX);
+        self.current_chunk().code.len() - 2
+    }
+
+    fn patch_jump(&mut self, index: usize) {
+        let jump_offset = self.current_chunk().code.len() - index - 2;
+        if jump_offset > u16::MAX as usize {
             self.error("Loop body too large.");
             return;
         }
-        match self
-            .context
-            .function
-            .borrow_mut()
-            .chunk
-            .code
-            .get_mut(num_operations_before - 1)
-        {
-            Some(Operation::JumpIfFalse(jump)) | Some(Operation::Jump(jump)) => {
-                *jump = (num_operations_after - num_operations_before) as u8
-            }
-            _ => {
-                self.error("Could not find reference to added jump_if_false operation.");
-            }
-        }
+        let function = self.context.function.borrow_mut();
+        let bytes = (jump_offset as u16).to_le_bytes();
+        function.chunk.code[index] = bytes[0];
+        function.chunk.code[index + 1] = bytes[1];
     }
 
     fn while_statement(&mut self) {
-        let num_operations_loop_start = self.current_chunk().code.len();
+        let loop_start = self.current_chunk().code.len();
         self.consume(TokenKind::LeftParen, "Expect '(' after 'while'.");
         self.expression();
         self.consume(TokenKind::RightParen, "Expect ')' after condition.");
 
-        self.emit(Operation::JumpIfFalse(JUMP_MAX_COUNT));
-        let num_operations_exit = self.current_chunk().code.len();
-        self.emit(Operation::Pop);
+        let exit_jump = self.emit_jump(Operation::JumpIfFalse);
+        self.emit(Operation::Pop as u8);
         self.statement();
-        self.emit_loop(num_operations_loop_start);
+        self.emit_loop(loop_start);
 
-        self.patch_jump(num_operations_exit);
-        self.emit(Operation::Pop);
+        self.patch_jump(exit_jump);
+        self.emit(Operation::Pop as u8);
     }
 
     fn for_statement(&mut self) {
@@ -451,56 +438,57 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         } else {
             self.expression_statement();
         }
-        let mut num_operations_loop_start = self.current_chunk().code.len();
+        let mut loop_start = self.current_chunk().code.len();
 
         // Condition clause.
-        let mut num_operations_exit = None;
+        let mut exit_jump = None;
         if !self.r#match(TokenKind::Semicolon) {
             self.expression();
             self.consume(TokenKind::Semicolon, "Expect ';' after loop condition.");
             // Jump out of the loop if the condition is false.
-            self.emit(Operation::JumpIfFalse(JUMP_MAX_COUNT));
-            num_operations_exit = Some(self.current_chunk().code.len());
-            self.emit(Operation::Pop);
+            exit_jump = Some(self.emit_jump(Operation::JumpIfFalse));
+            self.emit(Operation::Pop as u8);
         }
 
         // Incremenet clause.
         if !self.r#match(TokenKind::RightParen) {
-            self.emit(Operation::Jump(JUMP_MAX_COUNT));
-            let num_operations_jump = self.current_chunk().code.len();
-            let num_operations_increment_start = self.current_chunk().code.len();
+            let body_jump = self.emit_jump(Operation::Jump);
+            let increment_start = self.current_chunk().code.len();
             self.expression();
-            self.emit(Operation::Pop);
+            self.emit(Operation::Pop as u8);
             self.consume(TokenKind::RightParen, "Expect ')' after for clauses.");
-            self.emit_loop(num_operations_loop_start);
-            num_operations_loop_start = num_operations_increment_start;
-            self.patch_jump(num_operations_jump);
+            self.emit_loop(loop_start);
+            loop_start = increment_start;
+            self.patch_jump(body_jump);
         }
 
         self.statement();
-        self.emit_loop(num_operations_loop_start);
+        self.emit_loop(loop_start);
 
         // Patch exit loop jump from condition clause.
-        if let Some(num_operations_exit) = num_operations_exit {
-            self.patch_jump(num_operations_exit);
-            self.emit(Operation::Pop);
+        if let Some(exit_jump) = exit_jump {
+            self.patch_jump(exit_jump);
+            self.emit(Operation::Pop as u8);
         }
         self.end_scope();
     }
 
-    fn emit_loop(&mut self, num_operations_loop_start: usize) {
-        let offset = self.current_chunk().code.len() - num_operations_loop_start;
-        if offset > JUMP_MAX_COUNT_USIZE {
+    fn emit_loop(&mut self, loop_start: usize) {
+        self.emit(Operation::Loop as u8);
+        let offset = self.current_chunk().code.len() + 2 - loop_start;
+        if offset > u16::MAX as usize {
             self.error("Loop body too large.");
             return;
         }
-        self.emit(Operation::Loop(offset as u8));
+        let bytes = (offset as u16).to_le_bytes();
+        self.emit(bytes[0]);
+        self.emit(bytes[1]);
     }
 
     fn expression_statement(&mut self) {
         self.expression();
         self.consume(TokenKind::Semicolon, "Expect ';' after expression.");
-        self.emit(Operation::Pop);
+        self.emit(Operation::Pop as u8);
     }
 
     fn advance(&mut self) {
@@ -522,21 +510,18 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         self.error_at_current(message);
     }
 
-    fn emit(&mut self, operation: Operation) {
+    fn emit(&mut self, byte: u8) {
         let line = self.previous.line;
-        self.context
-            .function
-            .borrow_mut()
-            .chunk
-            .write(operation, line);
+        self.context.function.borrow_mut().chunk.write(byte, line);
     }
 
     fn emit_constant(&mut self, value: Value<'gc>) {
-        if let Some(constant_index) = self.context.function.chunk.add_constant(value) {
-            self.emit(Operation::Constant(constant_index));
-        } else {
+        let Some(constant_index) = self.context.function.chunk.add_constant(value) else {
             self.error("Too many constants in one chunk.");
-        }
+            return;
+        };
+        self.emit(Operation::Constant as u8);
+        self.emit(constant_index);
     }
 
     fn error(&mut self, message: &str) {
@@ -576,10 +561,13 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
 
     fn emit_return(&mut self) {
         match self.context.function.kind {
-            FunctionKind::Initializer => self.emit(Operation::GetLocal(0)),
-            _ => self.emit(Operation::Nil),
+            FunctionKind::Initializer => {
+                self.emit(Operation::GetLocal as u8);
+                self.emit(0);
+            }
+            _ => self.emit(Operation::Nil as u8),
         };
-        self.emit(Operation::Return);
+        self.emit(Operation::Return as u8);
     }
 
     fn synchronise(&mut self) {

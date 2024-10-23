@@ -44,6 +44,4 @@ pub enum ChefError {
     ConstantSuperclassNotFound,
     #[error("Value on top of stack is not an instance")]
     NoInstanceOnStack,
-    #[error("Invalid closure opcodes")]
-    ClosureOpcode,
 }

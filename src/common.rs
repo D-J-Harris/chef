@@ -7,9 +7,6 @@ pub const LOCALS_MAX_COUNT: usize = U8_COUNT_USIZE;
 pub const UPVALUES_MAX_COUNT: usize = U8_COUNT_USIZE;
 pub const CONSTANTS_MAX_COUNT: usize = U8_COUNT_USIZE;
 pub const STACK_VALUES_MAX_COUNT: usize = CALL_FRAMES_MAX_COUNT * U8_COUNT_USIZE;
-
-pub const JUMP_MAX_COUNT: u8 = u8::MAX;
-pub const JUMP_MAX_COUNT_USIZE: usize = JUMP_MAX_COUNT as usize;
 pub const FUNCTION_ARITY_MAX_COUNT: u8 = u8::MAX;
 
 pub const INIT_STRING: &str = "init";
