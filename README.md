@@ -1,48 +1,88 @@
 # `chef`
 
-Bytecode interpreter for the programming language `chef`, created following Part III of the book [Crafting Interpreters](https://craftinginterpreters.com/)
-
-Bootstrapped in Rust (the book uses C), using only `std`
-
-## Installation
-
-```rust
-cargo install chef
-```
+Custom programming language `chef`, created following Part III of the book [Crafting Interpreters](https://craftinginterpreters.com/) and porting the C bytecode interpreter into Rust
 
 ## Usage
 
+Run either with zero arguments as a REPL, or with one file
+
 ```rust
-cargo run --features debug-print-code ./example.chef
+chef
+chef <.lox file>
 ```
 
-## Features
+## Features Flags
 
-- `debug-print-code` - print out the disassembled chunk at the end of the compile step
-- `debug-trace-execution` - print out each disassembled instruction during the interpret step
+- `--debug_code` - print out each disassembled chunk at the end of compile time
+- `--debug_trace` - print out each disassembled operation during runtime
 
 ## TODO
 
-- [ ] Change `Operation` and `Value` enums to not carry data through use of `union`. Should `Value` remain copy or cloned through some reference counting?
-- [ ] Move from HashMap for identifiers (and parse rules) to a trie structure
-- [ ] Macros and better runtime and compile errors for `Vm`
-- [ ] Understand more about the performance and practical differences between String cloning (Rust) and the String heap allocation exercise from the "Strings" chapter (C). Does this implementation need a GC?
-- [ ] Clean up chunk debugging once `Operation` has been amending to carry no data
+- [x] Add string interning
+- [x] Increase jump opcode distance to original u16 maximum
+- [x] Change `Operation` enum to use one byte only (cache locality improvement)
+- [ ] Can move upvalues (`is_local` and `index` information) to `Function` object, instead of emitting operations
+- [ ] Move from HashMap for identifiers to a trie structure
+- [ ] Move array sizes from `U8_COUNT_USIZE` to `u8::MAX`, encode counts as `u8` rather than `usize`
 
-## Challenges
+## Features TODO
 
-The book notes a number of stretch challenges, which I have compiled below
+- [ ] `switch` statement
+- [ ] `continue` statement in loops
+- [ ] Support for lists
+- [ ] Support for native method to read from a file
 
-- [ ] Devise an encoding that compresses the line information for a series of instructions on the same line
-- [ ] Add `OP_CONSTANT_LONG` operation
+## Test
 
-> This leads us to optimising the size of constant `Value` so that no space is wasted on smaller constants. We could split up our arrays here to hold types of similar size, at the cost of managing more state and potentially needing to dynamically grow constant arrays more frequently
+```sh
+cargo test
+```
 
-- [ ] Look into [flexible array members](https://en.wikipedia.org/wiki/Flexible_array_member)
-- [ ] Add support for discerning between string literals that point back to source code and those that own their char array, to save memory on the heap for these cases
-- [ ] Support resolve variable scanning through a more efficient DS
-- [ ] Add support for switch statement and continue clauses in for loops
+The tests differ to the original test suite in the following ways:
 
-## Decisions
+- `scanning/*.lox` is removed
+- `expressions/parse.lox` is removed
 
-- Just like the source material, the character set is restricted to UTF-8 which enables us to scan the source code one byte at a time. The encoding of the source code is checked to be UTF-8 at runtime
+## Benchmarks
+
+Running `./run_benchmark.sh` shell script will run each benchmark test 5 times and output results to a local `.csv` file
+
+- List variable `BINARIES` defined in the script to control which binaries are run
+- List variable `BENCHMARK_FILES` defined in the script to control which benchmarks are run
+
+The local `./benchmark_plot.py` file can be used to visualise these CSV files on a group bar chart. This runs as a `uv` package manager script:
+
+```shell
+uv run benchmark_plot.py --output plot.png <space-separated-csv-file-paths>
+```
+
+## Copyright Notice
+
+Codebases and references all MIT licensed, including [this repository](./LICENSE)
+
+- [Test and benchmark files](./tests/suite/) adapted from the [book](https://github.com/munificent/craftinginterpreters)
+- [Test suite runner code](./tests/run.rs) inspired from [loxido](https://github.com/ceronman/loxido/tree/unsafe)
+
+## Patches
+
+`gc-arena` crate is patched in the following ways (pointer equality and hashing)
+
+```rust
+impl<'gc, T: PartialEq + ?Sized + 'gc> PartialEq for Gc<'gc, T> {
+    fn eq(&self, other: &Self) -> bool {
+        Gc::ptr_eq(*self, *other)
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        !Gc::ptr_eq(*self, *other)
+    }
+}
+
+impl<'gc, T: Hash + ?Sized + 'gc> Hash for Gc<'gc, T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        ptr::hash(Gc::as_ptr(*self), state);
+    }
+}
+```
+
+These are such that the pointer type `Gc<'gc, T>` can be used as a hash key in hashmap implementations

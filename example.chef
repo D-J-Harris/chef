@@ -1,4 +1,0 @@
-stir (ingredient i = 0; i < 3; i = i + 1) {
-  garnish i;
-}
-garnish "finished";

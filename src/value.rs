@@ -1,97 +1,149 @@
+use gc_arena::lock::RefLock;
+use gc_arena::{Collect, Gc};
+
+use crate::common::print_function;
+use crate::error::{ChefError, InterpretResult};
 use std::fmt::{Debug, Display};
 use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Value {
+use crate::objects::{
+    BoundMethod, ClassObject, ClosureObject, FunctionObject, InstanceObject, NativeFunction,
+};
+
+#[derive(Debug, Copy, Clone)]
+pub enum Value<'gc> {
+    Nil,
     Number(f64),
     Boolean(bool),
-    Nil,
-    String(String),
+    String(Gc<'gc, String>),
+    BoundMethod(Gc<'gc, BoundMethod<'gc>>),
+    Closure(Gc<'gc, ClosureObject<'gc>>),
+    Function(Gc<'gc, FunctionObject<'gc>>),
+    Class(Gc<'gc, RefLock<ClassObject<'gc>>>),
+    Instance(Gc<'gc, RefLock<InstanceObject<'gc>>>),
+    NativeFunction(NativeFunction<'gc>),
 }
 
-impl Display for Value {
+unsafe impl<'gc> Collect for Value<'gc> {
+    fn needs_trace() -> bool
+    where
+        Self: Sized,
+    {
+        true
+    }
+
+    fn trace(&self, cc: &gc_arena::Collection) {
+        match self {
+            Value::String(s) => s.trace(cc),
+            Value::Function(fun) => fun.trace(cc),
+            Value::Closure(closure) => closure.trace(cc),
+            Value::Class(class) => class.trace(cc),
+            Value::Instance(instance) => instance.trace(cc),
+            Value::BoundMethod(bound) => bound.trace(cc),
+            _ => {}
+        }
+    }
+}
+
+impl PartialEq for Value<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        match (*self, *other) {
+            (Self::Nil, Self::Nil) => true,
+            (Self::Boolean(a), Self::Boolean(b)) => a == b,
+            (Self::Number(a), Self::Number(b)) => a == b,
+            (Self::String(a), Self::String(b)) => Gc::ptr_eq(a, b),
+            (Self::BoundMethod(a), Self::BoundMethod(b)) => Gc::ptr_eq(a, b),
+            (Self::Class(a), Self::Class(b)) => Gc::ptr_eq(a, b),
+            (Self::Closure(a), Self::Closure(b)) => Gc::ptr_eq(a, b),
+            (Self::NativeFunction(a), Self::NativeFunction(b)) => a.eq(&b),
+            (Self::Function(a), Self::Function(b)) => Gc::ptr_eq(a, b),
+            (Self::Instance(a), Self::Instance(b)) => Gc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
+impl Display for Value<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Value::Nil => write!(f, "nil"),
             Value::Number(number) => write!(f, "{number}"),
             Value::Boolean(boolean) => write!(f, "{boolean}"),
-            Value::Nil => write!(f, "nil"),
             Value::String(string) => write!(f, "{string}"),
+            Value::NativeFunction(_) => write!(f, "<native fn>"),
+            Value::Function(rc) => write!(f, "{}", print_function(&rc.name)),
+            Value::Closure(rc) => write!(f, "{}", print_function(&rc.function.name)),
+            Value::Class(rc) => write!(f, "{}", rc.borrow().name),
+            Value::Instance(rc) => write!(f, "{} instance", rc.borrow().class.borrow().name),
+            Value::BoundMethod(rc) => write!(f, "{}", print_function(&rc.closure.function.name)),
         }
     }
 }
 
-impl Value {
-    pub fn negate(&mut self) -> Result<(), String> {
+impl<'gc> Value<'gc> {
+    pub fn negate(&mut self) -> InterpretResult<()> {
         match self {
-            Value::Number(number) => *number = -*number,
-            _ => return Err("Operand must be a number.".into()),
+            Self::Number(number) => *number = -*number,
+            _ => return Err(ChefError::ValueNegationOperation),
         };
         Ok(())
     }
 
-    pub fn add_assign(&mut self, rhs: Value) -> Result<(), String> {
+    pub fn add_assign(&mut self, rhs: Self) -> InterpretResult<()> {
         match (self, rhs) {
-            (Value::Number(a), Value::Number(b)) => a.add_assign(b),
-            (Value::String(a), Value::String(b)) => a.push_str(&b),
-            _ => return Err("Operands must be numbers.".into()),
+            (Self::Number(a), Self::Number(b)) => a.add_assign(b),
+            _ => return Err(ChefError::ValueAddOperation),
         };
         Ok(())
     }
 
-    pub fn sub_assign(&mut self, rhs: Value) -> Result<(), String> {
+    pub fn sub_assign(&mut self, rhs: Self) -> InterpretResult<()> {
         match (self, rhs) {
-            (Value::Number(a), Value::Number(b)) => a.sub_assign(b),
-            _ => return Err("Operands must be numbers.".into()),
+            (Self::Number(a), Self::Number(b)) => a.sub_assign(b),
+            _ => return Err(ChefError::ValueNumberOnlyOperation),
         };
         Ok(())
     }
 
-    pub fn mul_assign(&mut self, rhs: Value) -> Result<(), String> {
+    pub fn mul_assign(&mut self, rhs: Self) -> InterpretResult<()> {
         match (self, rhs) {
-            (Value::Number(a), Value::Number(b)) => a.mul_assign(b),
-            _ => return Err("Operands must be numbers.".into()),
+            (Self::Number(a), Self::Number(b)) => a.mul_assign(b),
+            _ => return Err(ChefError::ValueNumberOnlyOperation),
         };
         Ok(())
     }
 
-    pub fn div_assign(&mut self, rhs: Value) -> Result<(), String> {
+    pub fn div_assign(&mut self, rhs: Self) -> InterpretResult<()> {
         match (self, rhs) {
-            (Value::Number(a), Value::Number(b)) => a.div_assign(b),
-            _ => return Err("Operands must be numbers.".into()),
+            (Self::Number(a), Self::Number(b)) => a.div_assign(b),
+            _ => return Err(ChefError::ValueNumberOnlyOperation),
         };
         Ok(())
     }
 
-    pub fn falsey(&self) -> Result<bool, String> {
+    pub fn falsey(&self) -> bool {
         match self {
-            Value::Number(_) => Ok(false),
-            Value::Boolean(b) => Ok(!b),
-            Value::Nil => Ok(true),
-            Value::String(_) => Err("Operand for falsiness cannot be string.".into()),
-        }
-    }
-
-    pub fn is_equal(&self, rhs: Value) -> bool {
-        match (self, rhs) {
-            (Value::Nil, Value::Nil) => true,
-            (Value::Boolean(a), Value::Boolean(b)) => *a == b,
-            (Value::Number(a), Value::Number(b)) => *a == b,
-            (Value::String(a), Value::String(b)) => *a == b,
+            Self::Boolean(boolean) => !boolean,
+            Self::Nil => true,
             _ => false,
         }
     }
 
-    pub fn is_greater(&self, rhs: Value) -> Result<bool, String> {
+    pub fn is_equal(&self, rhs: Self) -> bool {
+        rhs.eq(self)
+    }
+
+    pub fn is_greater(&self, rhs: Self) -> InterpretResult<bool> {
         match (self, rhs) {
-            (Value::Number(a), Value::Number(b)) => Ok(*a > b),
-            _ => return Err("Operands must be numbers.".into()),
+            (Self::Number(a), Self::Number(b)) => Ok(*a > b),
+            _ => Err(ChefError::ValueNumberOnlyOperation),
         }
     }
 
-    pub fn is_less(&self, rhs: Value) -> Result<bool, String> {
+    pub fn is_less(&self, rhs: Self) -> InterpretResult<bool> {
         match (self, rhs) {
-            (Value::Number(a), Value::Number(b)) => Ok(*a < b),
-            _ => return Err("Operands must be numbers.".into()),
+            (Self::Number(a), Self::Number(b)) => Ok(*a < b),
+            _ => Err(ChefError::ValueNumberOnlyOperation),
         }
     }
 }
