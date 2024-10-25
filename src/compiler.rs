@@ -3,16 +3,19 @@ use std::u8;
 
 use gc_arena::{Gc, Mutation};
 
+use crate::chunk::{
+    ADD, CALL, CLASS, CLOSE_UPVALUE, CLOSURE, CONSTANT, DEFINE_GLOBAL, DIVIDE, EQUAL, FALSE,
+    GET_GLOBAL, GET_LOCAL, GET_PROPERTY, GET_SUPER, GET_UPVALUE, GREATER, INHERIT, INVOKE, JUMP,
+    JUMP_IF_FALSE, LESS, LOOP, METHOD, MULTIPLY, NEGATE, NIL, NOT, POP, PRINT, RETURN, SET_GLOBAL,
+    SET_LOCAL, SET_PROPERTY, SET_UPVALUE, SUBTRACT, SUPER_INVOKE, TRUE,
+};
 use crate::common::{FUNCTION_ARITY_MAX_COUNT, LOCALS_MAX_COUNT, SUPER_STRING, UPVALUES_MAX_COUNT};
 use crate::objects::{FunctionKind, FunctionObject};
 use crate::rules::{ParseFunctionKind, Precedence};
 use crate::scanner::{Token, TokenKind};
 use crate::value::Value;
 use crate::vm::State;
-use crate::{
-    chunk::{Chunk, Operation},
-    scanner::Scanner,
-};
+use crate::{chunk::Chunk, scanner::Scanner};
 
 pub struct Compiler<'source, 'gc> {
     mc: &'gc Mutation<'gc>,
@@ -119,7 +122,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             return;
         };
         self.declare_variable();
-        self.emit(Operation::Class as u8);
+        self.emit(CLASS);
         self.emit(constant_index);
         self.define_variable(constant_index);
 
@@ -138,7 +141,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             self.add_local(SUPER_STRING);
             self.define_variable(0);
             self.named_variable(class_name, false);
-            self.emit(Operation::Inherit as u8);
+            self.emit(INHERIT);
             self.class_compiler.as_mut().unwrap().has_superclass = true;
         }
 
@@ -148,7 +151,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             self.method();
         }
         self.consume(TokenKind::RightBrace, "Expect '}' after class body.");
-        self.emit(Operation::Pop as u8);
+        self.emit(POP);
         let current_class_compiler = self.class_compiler.take().unwrap();
         if current_class_compiler.has_superclass {
             self.end_scope();
@@ -166,7 +169,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             _ => FunctionKind::Method,
         };
         self.function(function_kind);
-        self.emit(Operation::Method as u8);
+        self.emit(METHOD);
         self.emit(constant_index);
     }
 
@@ -220,7 +223,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             self.error("Too many constants in one chunk.");
             return;
         };
-        self.emit(Operation::Closure as u8);
+        self.emit(CLOSURE);
         self.emit(constant_index);
 
         // emit bytes for variable number of closure upvalues
@@ -237,7 +240,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         if self.r#match(TokenKind::Equal) {
             self.expression();
         } else {
-            self.emit(Operation::Nil as u8);
+            self.emit(NIL);
         }
         self.consume(TokenKind::Semicolon, "Expect ';' after value.");
         self.define_variable(constant_index);
@@ -302,7 +305,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             self.mark_initialized();
             return;
         }
-        self.emit(Operation::DefineGlobal as u8);
+        self.emit(DEFINE_GLOBAL);
         self.emit(constant_index);
     }
 
@@ -347,9 +350,9 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
                 }
             }
             if self.context.locals[self.context.locals_count - 1].is_captured {
-                self.emit(Operation::CloseUpvalue as u8);
+                self.emit(CLOSE_UPVALUE);
             } else {
-                self.emit(Operation::Pop as u8);
+                self.emit(POP);
             }
             self.context.locals_count -= 1;
             self.context.locals[self.context.locals_count].reset();
@@ -366,19 +369,19 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     fn print_statement(&mut self) {
         self.expression();
         self.consume(TokenKind::Semicolon, "Expect ';' after value.");
-        self.emit(Operation::Print as u8);
+        self.emit(PRINT);
     }
 
     fn if_statement(&mut self) {
         self.consume(TokenKind::LeftParen, "Expect '(' after 'if'.");
         self.expression();
         self.consume(TokenKind::RightParen, "Expect ')' after condition.");
-        let then_jump = self.emit_jump(Operation::JumpIfFalse);
-        self.emit(Operation::Pop as u8);
+        let then_jump = self.emit_jump(JUMP_IF_FALSE);
+        self.emit(POP);
         self.statement();
-        let else_jump = self.emit_jump(Operation::Jump);
+        let else_jump = self.emit_jump(JUMP);
         self.patch_jump(then_jump);
-        self.emit(Operation::Pop as u8);
+        self.emit(POP);
         if self.r#match(TokenKind::Else) {
             self.statement();
         }
@@ -399,12 +402,12 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             }
             self.expression();
             self.consume(TokenKind::Semicolon, "Expect ';' after return value.");
-            self.emit(Operation::Return as u8);
+            self.emit(RETURN);
         }
     }
 
-    fn emit_jump(&mut self, operation: Operation) -> usize {
-        self.emit(operation as u8);
+    fn emit_jump(&mut self, operation: u8) -> usize {
+        self.emit(operation);
         self.emit(u8::MAX);
         self.emit(u8::MAX);
         self.current_chunk().code.len() - 2
@@ -428,13 +431,13 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         self.expression();
         self.consume(TokenKind::RightParen, "Expect ')' after condition.");
 
-        let exit_jump = self.emit_jump(Operation::JumpIfFalse);
-        self.emit(Operation::Pop as u8);
+        let exit_jump = self.emit_jump(JUMP_IF_FALSE);
+        self.emit(POP);
         self.statement();
         self.emit_loop(loop_start);
 
         self.patch_jump(exit_jump);
-        self.emit(Operation::Pop as u8);
+        self.emit(POP);
     }
 
     fn for_statement(&mut self) {
@@ -455,16 +458,16 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             self.expression();
             self.consume(TokenKind::Semicolon, "Expect ';' after loop condition.");
             // Jump out of the loop if the condition is false.
-            exit_jump = Some(self.emit_jump(Operation::JumpIfFalse));
-            self.emit(Operation::Pop as u8);
+            exit_jump = Some(self.emit_jump(JUMP_IF_FALSE));
+            self.emit(POP);
         }
 
         // Incremenet clause.
         if !self.r#match(TokenKind::RightParen) {
-            let body_jump = self.emit_jump(Operation::Jump);
+            let body_jump = self.emit_jump(JUMP);
             let increment_start = self.current_chunk().code.len();
             self.expression();
-            self.emit(Operation::Pop as u8);
+            self.emit(POP);
             self.consume(TokenKind::RightParen, "Expect ')' after for clauses.");
             self.emit_loop(loop_start);
             loop_start = increment_start;
@@ -477,13 +480,13 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         // Patch exit loop jump from condition clause.
         if let Some(exit_jump) = exit_jump {
             self.patch_jump(exit_jump);
-            self.emit(Operation::Pop as u8);
+            self.emit(POP);
         }
         self.end_scope();
     }
 
     fn emit_loop(&mut self, loop_start: usize) {
-        self.emit(Operation::Loop as u8);
+        self.emit(LOOP);
         let offset = self.current_chunk().code.len() + 2 - loop_start;
         if offset > u16::MAX as usize {
             self.error("Loop body too large.");
@@ -497,7 +500,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     fn expression_statement(&mut self) {
         self.expression();
         self.consume(TokenKind::Semicolon, "Expect ';' after expression.");
-        self.emit(Operation::Pop as u8);
+        self.emit(POP);
     }
 
     fn advance(&mut self) {
@@ -529,7 +532,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             self.error("Too many constants in one chunk.");
             return;
         };
-        self.emit(Operation::Constant as u8);
+        self.emit(CONSTANT);
         self.emit(constant_index);
     }
 
@@ -560,12 +563,12 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     fn emit_return(&mut self) {
         match self.context.function.kind {
             FunctionKind::Initializer => {
-                self.emit(Operation::GetLocal as u8);
+                self.emit(GET_LOCAL);
                 self.emit(0);
             }
-            _ => self.emit(Operation::Nil as u8),
+            _ => self.emit(NIL),
         };
-        self.emit(Operation::Return as u8);
+        self.emit(RETURN);
     }
 
     fn synchronise(&mut self) {
@@ -645,8 +648,8 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         let operator_kind = self.previous.kind;
         self.parse_precedence(Precedence::Unary);
         match operator_kind {
-            TokenKind::Minus => self.emit(Operation::Negate as u8),
-            TokenKind::Bang => self.emit(Operation::Not as u8),
+            TokenKind::Minus => self.emit(NEGATE),
+            TokenKind::Bang => self.emit(NOT),
             _ => unreachable!(),
         }
     }
@@ -656,24 +659,24 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         let parse_rule = Precedence::get_rule(operator_kind);
         self.parse_precedence(parse_rule.precedence.next());
         match operator_kind {
-            TokenKind::Plus => self.emit(Operation::Add as u8),
-            TokenKind::Minus => self.emit(Operation::Subtract as u8),
-            TokenKind::Star => self.emit(Operation::Multiply as u8),
-            TokenKind::Slash => self.emit(Operation::Divide as u8),
-            TokenKind::EqualEqual => self.emit(Operation::Equal as u8),
-            TokenKind::Greater => self.emit(Operation::Greater as u8),
-            TokenKind::Less => self.emit(Operation::Less as u8),
+            TokenKind::Plus => self.emit(ADD),
+            TokenKind::Minus => self.emit(SUBTRACT),
+            TokenKind::Star => self.emit(MULTIPLY),
+            TokenKind::Slash => self.emit(DIVIDE),
+            TokenKind::EqualEqual => self.emit(EQUAL),
+            TokenKind::Greater => self.emit(GREATER),
+            TokenKind::Less => self.emit(LESS),
             TokenKind::BangEqual => {
-                self.emit(Operation::Equal as u8);
-                self.emit(Operation::Not as u8);
+                self.emit(EQUAL);
+                self.emit(NOT);
             }
             TokenKind::GreaterEqual => {
-                self.emit(Operation::Less as u8);
-                self.emit(Operation::Not as u8);
+                self.emit(LESS);
+                self.emit(NOT);
             }
             TokenKind::LessEqual => {
-                self.emit(Operation::Greater as u8);
-                self.emit(Operation::Not as u8);
+                self.emit(GREATER);
+                self.emit(NOT);
             }
             _ => unreachable!(),
         }
@@ -689,9 +692,9 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
 
     fn literal(&mut self) {
         match self.previous.kind {
-            TokenKind::Nil => self.emit(Operation::Nil as u8),
-            TokenKind::True => self.emit(Operation::True as u8),
-            TokenKind::False => self.emit(Operation::False as u8),
+            TokenKind::Nil => self.emit(NIL),
+            TokenKind::True => self.emit(TRUE),
+            TokenKind::False => self.emit(FALSE),
             _ => unreachable!(),
         }
     }
@@ -708,36 +711,31 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     }
 
     pub fn named_variable(&mut self, token_name: &str, can_assign: bool) {
-        let (get_operation_bytes, set_operation_bytes) =
-            match self.context.resolve_local(token_name) {
-                Ok(Some(constant_index)) => (
-                    (Operation::GetLocal as u8, constant_index),
-                    (Operation::SetLocal as u8, constant_index),
-                ),
-                Ok(None) => match self.context.resolve_upvalue(token_name) {
-                    Ok(Some(upvalue_index)) => (
-                        (Operation::GetUpvalue as u8, upvalue_index),
-                        (Operation::SetUpvalue as u8, upvalue_index),
-                    ),
-                    Ok(None) => {
-                        let Some(index) = self.constant_identifier(token_name) else {
-                            return;
-                        };
-                        (
-                            (Operation::GetGlobal as u8, index),
-                            (Operation::SetGlobal as u8, index),
-                        )
-                    }
-                    Err(e) => {
-                        self.error(&e);
+        let (get_operation_bytes, set_operation_bytes) = match self
+            .context
+            .resolve_local(token_name)
+        {
+            Ok(Some(constant_index)) => ((GET_LOCAL, constant_index), (SET_LOCAL, constant_index)),
+            Ok(None) => match self.context.resolve_upvalue(token_name) {
+                Ok(Some(upvalue_index)) => {
+                    ((GET_UPVALUE, upvalue_index), (SET_UPVALUE, upvalue_index))
+                }
+                Ok(None) => {
+                    let Some(index) = self.constant_identifier(token_name) else {
                         return;
-                    }
-                },
+                    };
+                    ((GET_GLOBAL, index), (SET_GLOBAL, index))
+                }
                 Err(e) => {
                     self.error(&e);
                     return;
                 }
-            };
+            },
+            Err(e) => {
+                self.error(&e);
+                return;
+            }
+        };
 
         if can_assign && self.r#match(TokenKind::Equal) {
             self.expression();
@@ -750,17 +748,17 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     }
 
     fn and(&mut self) {
-        let and_jump = self.emit_jump(Operation::JumpIfFalse);
-        self.emit(Operation::Pop as u8);
+        let and_jump = self.emit_jump(JUMP_IF_FALSE);
+        self.emit(POP);
         self.parse_precedence(Precedence::And);
         self.patch_jump(and_jump);
     }
 
     fn or(&mut self) {
-        let else_jump = self.emit_jump(Operation::JumpIfFalse);
-        let end_jump = self.emit_jump(Operation::Jump);
+        let else_jump = self.emit_jump(JUMP_IF_FALSE);
+        let end_jump = self.emit_jump(JUMP);
         self.patch_jump(else_jump);
-        self.emit(Operation::Pop as u8);
+        self.emit(POP);
         self.parse_precedence(Precedence::Or);
         self.patch_jump(end_jump);
     }
@@ -770,7 +768,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             self.error("Can't have more than 255 arguments.");
             return;
         };
-        self.emit(Operation::Call as u8);
+        self.emit(CALL);
         self.emit(argument_count);
     }
 
@@ -800,18 +798,18 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         };
         if can_assign && self.r#match(TokenKind::Equal) {
             self.expression();
-            self.emit(Operation::SetProperty as u8);
+            self.emit(SET_PROPERTY);
             self.emit(name_index);
         } else if self.r#match(TokenKind::LeftParen) {
             let Some(argument_count) = self.argument_list() else {
                 self.error("Can't have more than 255 arguments.");
                 return;
             };
-            self.emit(Operation::Invoke as u8);
+            self.emit(INVOKE);
             self.emit(name_index);
             self.emit(argument_count);
         } else {
-            self.emit(Operation::GetProperty as u8);
+            self.emit(GET_PROPERTY);
             self.emit(name_index);
         }
     }
@@ -845,12 +843,12 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
                 return;
             };
             self.named_variable(SUPER_STRING, false);
-            self.emit(Operation::SuperInvoke as u8);
+            self.emit(SUPER_INVOKE);
             self.emit(name_index);
             self.emit(argument_count);
         } else {
             self.named_variable(SUPER_STRING, false);
-            self.emit(Operation::GetSuper as u8);
+            self.emit(GET_SUPER);
             self.emit(name_index);
         }
     }

@@ -5,9 +5,13 @@ use std::ops::Deref;
 use ahash::AHasher;
 use gc_arena::lock::RefLock;
 use gc_arena::{Collect, Collection, Gc, Mutation};
-use num_traits::FromPrimitive;
 
-use crate::chunk::Operation;
+use crate::chunk::{
+    ADD, CALL, CLASS, CLOSE_UPVALUE, CLOSURE, CONSTANT, DEFINE_GLOBAL, DIVIDE, EQUAL, FALSE,
+    GET_GLOBAL, GET_LOCAL, GET_PROPERTY, GET_SUPER, GET_UPVALUE, GREATER, INHERIT, INVOKE, JUMP,
+    JUMP_IF_FALSE, LESS, LOOP, METHOD, MULTIPLY, NEGATE, NIL, NOT, POP, PRINT, RETURN, SET_GLOBAL,
+    SET_LOCAL, SET_PROPERTY, SET_UPVALUE, SUBTRACT, SUPER_INVOKE, TRUE,
+};
 use crate::common::{CALL_FRAMES_MAX_COUNT, INIT_STRING, STACK_VALUES_MAX_COUNT};
 use crate::error::{ChefError, InterpretResult};
 use crate::native_functions::current_time_s;
@@ -141,6 +145,7 @@ impl<'gc> State<'gc> {
     }
 
     // Returns boolean indicating whether the current run is complete
+    #[inline(never)]
     pub fn run(&mut self, steps: u32) -> InterpretResult<bool> {
         let mut current_frame = self.pop_frame();
         for _ in 0..steps {
@@ -162,44 +167,45 @@ impl<'gc> State<'gc> {
             .function()
             .chunk
             .disassemble_instruction(current_frame.frame_ip - 1);
-        match Operation::from_u8(byte).expect("Invalid opcode.") {
-            Operation::Return => return self.op_return(current_frame),
-            Operation::Constant => self.op_constant(current_frame)?,
-            Operation::Negate => self.op_negate()?,
-            Operation::Add => self.op_add()?,
-            Operation::Subtract => self.op_subtract()?,
-            Operation::Multiply => self.op_multiply()?,
-            Operation::Divide => self.op_divide()?,
-            Operation::Nil => self.op_nil()?,
-            Operation::True => self.op_true()?,
-            Operation::False => self.op_false()?,
-            Operation::Not => self.op_not()?,
-            Operation::Equal => self.op_equal()?,
-            Operation::Greater => self.op_greater()?,
-            Operation::Less => self.op_less()?,
-            Operation::Print => self.op_print(),
-            Operation::Pop => drop(self.pop()),
-            Operation::DefineGlobal => self.op_define_global(current_frame)?,
-            Operation::GetGlobal => self.op_get_global(current_frame)?,
-            Operation::SetGlobal => self.op_set_global(current_frame)?,
-            Operation::GetLocal => self.op_get_local(current_frame)?,
-            Operation::SetLocal => self.op_set_local(current_frame),
-            Operation::JumpIfFalse => self.op_jump_if_false(current_frame),
-            Operation::Jump => self.op_jump(current_frame),
-            Operation::Loop => self.op_loop(current_frame),
-            Operation::Call => self.op_call(current_frame)?,
-            Operation::Closure => self.op_closure(current_frame)?,
-            Operation::GetUpvalue => self.op_get_upvalue(current_frame)?,
-            Operation::SetUpvalue => self.op_set_upvalue(current_frame),
-            Operation::CloseUpvalue => self.op_close_upvalues()?,
-            Operation::Class => self.op_class(current_frame)?,
-            Operation::GetProperty => self.op_get_property(current_frame)?,
-            Operation::SetProperty => self.op_set_property(current_frame)?,
-            Operation::Method => self.op_method(current_frame)?,
-            Operation::Invoke => self.op_invoke(current_frame)?,
-            Operation::Inherit => self.op_inherit()?,
-            Operation::GetSuper => self.op_get_super(current_frame)?,
-            Operation::SuperInvoke => self.op_super_invoke(current_frame)?,
+        match byte {
+            RETURN => return self.op_return(current_frame),
+            CONSTANT => self.op_constant(current_frame)?,
+            NEGATE => self.op_negate()?,
+            ADD => self.op_add()?,
+            SUBTRACT => self.op_subtract()?,
+            MULTIPLY => self.op_multiply()?,
+            DIVIDE => self.op_divide()?,
+            NIL => self.op_nil()?,
+            TRUE => self.op_true()?,
+            FALSE => self.op_false()?,
+            NOT => self.op_not()?,
+            EQUAL => self.op_equal()?,
+            GREATER => self.op_greater()?,
+            LESS => self.op_less()?,
+            PRINT => self.op_print(),
+            POP => drop(self.pop()),
+            DEFINE_GLOBAL => self.op_define_global(current_frame)?,
+            GET_GLOBAL => self.op_get_global(current_frame)?,
+            SET_GLOBAL => self.op_set_global(current_frame)?,
+            GET_LOCAL => self.op_get_local(current_frame)?,
+            SET_LOCAL => self.op_set_local(current_frame),
+            JUMP_IF_FALSE => self.op_jump_if_false(current_frame),
+            JUMP => self.op_jump(current_frame),
+            LOOP => self.op_loop(current_frame),
+            CALL => self.op_call(current_frame)?,
+            CLOSURE => self.op_closure(current_frame)?,
+            GET_UPVALUE => self.op_get_upvalue(current_frame)?,
+            SET_UPVALUE => self.op_set_upvalue(current_frame),
+            CLOSE_UPVALUE => self.op_close_upvalues()?,
+            CLASS => self.op_class(current_frame)?,
+            GET_PROPERTY => self.op_get_property(current_frame)?,
+            SET_PROPERTY => self.op_set_property(current_frame)?,
+            METHOD => self.op_method(current_frame)?,
+            INVOKE => self.op_invoke(current_frame)?,
+            INHERIT => self.op_inherit()?,
+            GET_SUPER => self.op_get_super(current_frame)?,
+            SUPER_INVOKE => self.op_super_invoke(current_frame)?,
+            _ => panic!("Invalid opcode."),
         };
         Ok(false)
     }
