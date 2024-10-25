@@ -9,7 +9,6 @@ use std::process::exit;
 use compiler::Compiler;
 use error::ChefError;
 use error::InterpretResult;
-use gc_arena::arena::CollectionPhase;
 use gc_arena::Arena;
 use gc_arena::Gc;
 use gc_arena::Rootable;
@@ -71,13 +70,7 @@ impl<'source> Chef {
             }) {
                 Ok(false) => {
                     if self.state.metrics().allocation_debt() > COLLECTOR_GRANULARITY {
-                        if self.state.collection_phase() == CollectionPhase::Sweeping {
-                            self.state.collect_debt();
-                        } else {
-                            // Immediately transition to `CollectionPhase::Sweeping`.
-                            self.state.mark_all().unwrap().start_sweeping();
-                        }
-                        continue;
+                        self.state.collect_all();
                     }
                 }
                 result => break result.map(|_| ()),

@@ -1,6 +1,6 @@
 # `chef`
 
-Custom programming language `chef`, created following Part III of the book [Crafting Interpreters](https://craftinginterpreters.com/) and porting the C bytecode interpreter into Rust
+This branch hosts the core Lox implementation, created following Part III of the book [Crafting Interpreters](https://craftinginterpreters.com/) and porting the C bytecode interpreter into Rust
 
 ## Usage
 
