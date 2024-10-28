@@ -1,56 +1,40 @@
-use std::borrow::BorrowMut;
+use std::rc::Rc;
 use std::u8;
 
-use gc_arena::{Gc, Mutation};
-
-use crate::chunk::{
-    ADD, CALL, CLASS, CLOSE_UPVALUE, CLOSURE, CONSTANT, DEFINE_GLOBAL, DIVIDE, EQUAL, FALSE,
-    GET_GLOBAL, GET_LOCAL, GET_PROPERTY, GET_SUPER, GET_UPVALUE, GREATER, INHERIT, INVOKE, JUMP,
-    JUMP_IF_FALSE, LESS, LOOP, METHOD, MULTIPLY, NEGATE, NIL, NOT, POP, PRINT, RETURN, SET_GLOBAL,
-    SET_LOCAL, SET_PROPERTY, SET_UPVALUE, SUBTRACT, SUPER_INVOKE, TRUE,
-};
-use crate::common::{FUNCTION_ARITY_MAX_COUNT, LOCALS_MAX_COUNT, SUPER_STRING, UPVALUES_MAX_COUNT};
-use crate::objects::{FunctionKind, FunctionObject};
+use crate::chunk::Opcode;
+use crate::common::{FUNCTION_ARITY_MAX_COUNT, LOCALS_MAX_COUNT};
+use crate::function::{Function, FunctionKind};
 use crate::rules::{ParseFunctionKind, Precedence};
 use crate::scanner::{Token, TokenKind};
 use crate::value::Value;
-use crate::vm::State;
-use crate::{chunk::Chunk, scanner::Scanner};
+use crate::{chunk::Code, scanner::Scanner};
 
-pub struct Compiler<'source, 'gc> {
-    mc: &'gc Mutation<'gc>,
-    scanner: Scanner<'source>,
-    previous: Token<'source>,
-    current: Token<'source>,
-    context: CompilerContext<'source, 'gc>,
-    state: &'source mut State<'gc>,
+pub struct Compiler<'src> {
+    scanner: Scanner<'src>,
+    previous: Token<'src>,
+    current: Token<'src>,
+    context: CompilerContext<'src>,
     class_compiler: Option<Box<ClassCompiler>>,
     had_error: bool,
     panic_mode: bool,
 }
 
-impl<'source, 'gc> Compiler<'source, 'gc> {
-    pub fn new(
-        mc: &'gc Mutation<'gc>,
-        source: &'source str,
-        state: &'source mut State<'gc>,
-    ) -> Self {
+impl<'src> Compiler<'src> {
+    pub fn new(source: &'src str) -> Self {
         let initial_token = Token::new("", 1, TokenKind::Error);
         let context = CompilerContext::new("", FunctionKind::Script);
         Self {
-            mc,
             scanner: Scanner::new(source),
             previous: initial_token,
             current: initial_token,
             had_error: false,
             panic_mode: false,
             context,
-            state,
             class_compiler: None,
         }
     }
 
-    fn current_chunk(&self) -> &Chunk<'gc> {
+    fn current_chunk(&self) -> &Code {
         &self.context.function.chunk
     }
 
@@ -61,30 +45,29 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         self.context.enclosing = Some(Box::new(enclosing_compiler_context));
     }
 
-    fn end_compiler(&mut self) -> Option<(FunctionObject<'gc>, [Upvalue; UPVALUES_MAX_COUNT])> {
+    fn end_compiler(&mut self) -> Option<Function> {
         self.emit_return();
         #[cfg(feature = "debug_code")]
         self.context.debug();
-
         self.context.enclosing.take().map(|parent| {
             let context = std::mem::replace(&mut self.context, *parent);
-            (context.function, context.upvalues)
+            context.function
         })
     }
 
-    pub fn compile(mut self) -> Option<Gc<'gc, FunctionObject<'gc>>> {
+    pub fn compile(mut self) -> Option<Rc<Function>> {
         self.advance();
         while !self.r#match(TokenKind::Eof) {
             self.declaration();
         }
         let had_error = self.had_error;
         let function = match self.end_compiler() {
-            Some((f, _upvalues)) => f,
+            Some(f) => f,
             None => self.context.function,
         };
         match had_error {
             true => None,
-            false => Some(Gc::new(self.mc, function)),
+            false => Some(Rc::new(function)),
         }
     }
 
@@ -101,9 +84,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     }
 
     fn declaration(&mut self) {
-        if self.r#match(TokenKind::Class) {
-            self.class_declaration();
-        } else if self.r#match(TokenKind::Fun) {
+        if self.r#match(TokenKind::Fun) {
             self.fun_declaration();
         } else if self.r#match(TokenKind::Var) {
             self.var_declaration();
@@ -113,64 +94,6 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         if self.panic_mode {
             self.synchronise();
         }
-    }
-
-    fn class_declaration(&mut self) {
-        self.consume(TokenKind::Identifier, "Expect class name.");
-        let class_name = self.previous.lexeme;
-        let Some(constant_index) = self.constant_identifier(class_name) else {
-            return;
-        };
-        self.declare_variable();
-        self.emit(CLASS);
-        self.emit(constant_index);
-        self.define_variable(constant_index);
-
-        let current_class_compiler = self.class_compiler.take();
-        let class_compiler = Box::new(ClassCompiler::new(current_class_compiler));
-        self.class_compiler = Some(class_compiler);
-
-        if self.r#match(TokenKind::Less) {
-            self.consume(TokenKind::Identifier, "Expect superclass name.");
-            self.variable(false);
-            if class_name == self.previous.lexeme {
-                self.error("A class can't inherit from itself.");
-            }
-
-            self.begin_scope();
-            self.add_local(SUPER_STRING);
-            self.define_variable(0);
-            self.named_variable(class_name, false);
-            self.emit(INHERIT);
-            self.class_compiler.as_mut().unwrap().has_superclass = true;
-        }
-
-        self.named_variable(class_name, false);
-        self.consume(TokenKind::LeftBrace, "Expect '{' before class body.");
-        while !self.check(TokenKind::RightBrace) && !self.check(TokenKind::Eof) {
-            self.method();
-        }
-        self.consume(TokenKind::RightBrace, "Expect '}' after class body.");
-        self.emit(POP);
-        let current_class_compiler = self.class_compiler.take().unwrap();
-        if current_class_compiler.has_superclass {
-            self.end_scope();
-        }
-        self.class_compiler = current_class_compiler.enclosing;
-    }
-
-    fn method(&mut self) {
-        self.consume(TokenKind::Identifier, "Expect method name.");
-        let Some(constant_index) = self.constant_identifier(self.previous.lexeme) else {
-            return;
-        };
-        let function_kind = match self.previous.lexeme {
-            "init" => FunctionKind::Initializer,
-            _ => FunctionKind::Method,
-        };
-        self.function(function_kind);
-        self.emit(METHOD);
-        self.emit(constant_index);
     }
 
     fn fun_declaration(&mut self) {
@@ -189,7 +112,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         self.consume(TokenKind::LeftParen, "Expect '(' after function name.");
         if !self.check(TokenKind::RightParen) {
             loop {
-                let current_arity = &mut self.context.function.borrow_mut().arity;
+                let current_arity = &mut self.context.function.arity;
                 if *current_arity == FUNCTION_ARITY_MAX_COUNT {
                     self.error_at_current("Can't have more than 255 parameters.");
                     return;
@@ -209,28 +132,21 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         self.consume(TokenKind::LeftBrace, "Expect '{' before function body.");
         self.block();
 
-        let Some((function, upvalues)) = self.end_compiler() else {
+        let Some(function) = self.end_compiler() else {
             self.error("Cannot end compiler for the top-level script.");
             return;
         };
-        let upvalue_count = function.upvalue_count;
         let Some(constant_index) = self
             .context
             .function
             .chunk
-            .add_constant(Value::Function(Gc::new(self.mc, function)))
+            .add_constant(Value::Function(Rc::new(function)))
         else {
             self.error("Too many constants in one chunk.");
             return;
         };
-        self.emit(CLOSURE);
+        self.emit(Opcode::Function as u8);
         self.emit(constant_index);
-
-        // emit bytes for variable number of closure upvalues
-        for upvalue in upvalues.iter().take(upvalue_count) {
-            self.emit(upvalue.is_local as u8);
-            self.emit(upvalue.index);
-        }
     }
 
     fn var_declaration(&mut self) {
@@ -240,7 +156,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         if self.r#match(TokenKind::Equal) {
             self.expression();
         } else {
-            self.emit(NIL);
+            self.emit(Opcode::Nil as u8);
         }
         self.consume(TokenKind::Semicolon, "Expect ';' after value.");
         self.define_variable(constant_index);
@@ -280,7 +196,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         self.add_local(variable_name)
     }
 
-    fn add_local(&mut self, name: &'source str) {
+    fn add_local(&mut self, name: &'src str) {
         let locals_count = &mut self.context.locals_count;
         if *locals_count == LOCALS_MAX_COUNT {
             self.error("Too many local variables in function.");
@@ -292,12 +208,10 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     }
 
     fn constant_identifier(&mut self, token_name: &str) -> Option<u8> {
-        let string = self.state.strings.intern(token_name);
         self.context
             .function
-            .borrow_mut()
             .chunk
-            .add_constant(Value::String(string))
+            .add_constant(Value::String(token_name.into()))
     }
 
     fn define_variable(&mut self, constant_index: u8) {
@@ -305,7 +219,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             self.mark_initialized();
             return;
         }
-        self.emit(DEFINE_GLOBAL);
+        self.emit(Opcode::DefineGlobal as u8);
         self.emit(constant_index);
     }
 
@@ -349,11 +263,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
                     break;
                 }
             }
-            if self.context.locals[self.context.locals_count - 1].is_captured {
-                self.emit(CLOSE_UPVALUE);
-            } else {
-                self.emit(POP);
-            }
+            self.emit(Opcode::Pop as u8);
             self.context.locals_count -= 1;
             self.context.locals[self.context.locals_count].reset();
         }
@@ -369,19 +279,19 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     fn print_statement(&mut self) {
         self.expression();
         self.consume(TokenKind::Semicolon, "Expect ';' after value.");
-        self.emit(PRINT);
+        self.emit(Opcode::Print as u8);
     }
 
     fn if_statement(&mut self) {
         self.consume(TokenKind::LeftParen, "Expect '(' after 'if'.");
         self.expression();
         self.consume(TokenKind::RightParen, "Expect ')' after condition.");
-        let then_jump = self.emit_jump(JUMP_IF_FALSE);
-        self.emit(POP);
+        let then_jump = self.emit_jump(Opcode::JumpIfFalse as u8);
+        self.emit(Opcode::Pop as u8);
         self.statement();
-        let else_jump = self.emit_jump(JUMP);
+        let else_jump = self.emit_jump(Opcode::Jump as u8);
         self.patch_jump(then_jump);
-        self.emit(POP);
+        self.emit(Opcode::Pop as u8);
         if self.r#match(TokenKind::Else) {
             self.statement();
         }
@@ -397,12 +307,9 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         if self.r#match(TokenKind::Semicolon) {
             self.emit_return();
         } else {
-            if current_function_kind == FunctionKind::Initializer {
-                self.error("Can't return a value from an initializer.");
-            }
             self.expression();
             self.consume(TokenKind::Semicolon, "Expect ';' after return value.");
-            self.emit(RETURN);
+            self.emit(Opcode::Return as u8);
         }
     }
 
@@ -419,7 +326,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             self.error("Loop body too large.");
             return;
         }
-        let function = self.context.function.borrow_mut();
+        let function = &mut self.context.function;
         let bytes = (jump_offset as u16).to_le_bytes();
         function.chunk.code[index] = bytes[0];
         function.chunk.code[index + 1] = bytes[1];
@@ -431,13 +338,13 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         self.expression();
         self.consume(TokenKind::RightParen, "Expect ')' after condition.");
 
-        let exit_jump = self.emit_jump(JUMP_IF_FALSE);
-        self.emit(POP);
+        let exit_jump = self.emit_jump(Opcode::JumpIfFalse as u8);
+        self.emit(Opcode::Pop as u8);
         self.statement();
         self.emit_loop(loop_start);
 
         self.patch_jump(exit_jump);
-        self.emit(POP);
+        self.emit(Opcode::Pop as u8);
     }
 
     fn for_statement(&mut self) {
@@ -458,16 +365,16 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             self.expression();
             self.consume(TokenKind::Semicolon, "Expect ';' after loop condition.");
             // Jump out of the loop if the condition is false.
-            exit_jump = Some(self.emit_jump(JUMP_IF_FALSE));
-            self.emit(POP);
+            exit_jump = Some(self.emit_jump(Opcode::JumpIfFalse as u8));
+            self.emit(Opcode::Pop as u8);
         }
 
         // Incremenet clause.
         if !self.r#match(TokenKind::RightParen) {
-            let body_jump = self.emit_jump(JUMP);
+            let body_jump = self.emit_jump(Opcode::Jump as u8);
             let increment_start = self.current_chunk().code.len();
             self.expression();
-            self.emit(POP);
+            self.emit(Opcode::Pop as u8);
             self.consume(TokenKind::RightParen, "Expect ')' after for clauses.");
             self.emit_loop(loop_start);
             loop_start = increment_start;
@@ -480,13 +387,13 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         // Patch exit loop jump from condition clause.
         if let Some(exit_jump) = exit_jump {
             self.patch_jump(exit_jump);
-            self.emit(POP);
+            self.emit(Opcode::Pop as u8);
         }
         self.end_scope();
     }
 
     fn emit_loop(&mut self, loop_start: usize) {
-        self.emit(LOOP);
+        self.emit(Opcode::Loop as u8);
         let offset = self.current_chunk().code.len() + 2 - loop_start;
         if offset > u16::MAX as usize {
             self.error("Loop body too large.");
@@ -500,7 +407,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     fn expression_statement(&mut self) {
         self.expression();
         self.consume(TokenKind::Semicolon, "Expect ';' after expression.");
-        self.emit(POP);
+        self.emit(Opcode::Pop as u8);
     }
 
     fn advance(&mut self) {
@@ -524,15 +431,15 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
 
     fn emit(&mut self, byte: u8) {
         let line = self.previous.line;
-        self.context.function.borrow_mut().chunk.write(byte, line);
+        self.context.function.chunk.write(byte, line);
     }
 
-    fn emit_constant(&mut self, value: Value<'gc>) {
+    fn emit_constant(&mut self, value: Value) {
         let Some(constant_index) = self.context.function.chunk.add_constant(value) else {
             self.error("Too many constants in one chunk.");
             return;
         };
-        self.emit(CONSTANT);
+        self.emit(Opcode::Constant as u8);
         self.emit(constant_index);
     }
 
@@ -561,14 +468,8 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     }
 
     fn emit_return(&mut self) {
-        match self.context.function.kind {
-            FunctionKind::Initializer => {
-                self.emit(GET_LOCAL);
-                self.emit(0);
-            }
-            _ => self.emit(NIL),
-        };
-        self.emit(RETURN);
+        self.emit(Opcode::Nil as u8);
+        self.emit(Opcode::Return as u8);
     }
 
     fn synchronise(&mut self) {
@@ -629,9 +530,6 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             ParseFunctionKind::And => Self::and(self),
             ParseFunctionKind::Or => Self::or(self),
             ParseFunctionKind::Call => Self::call(self),
-            ParseFunctionKind::Dot => Self::dot(self, Self::can_assign(precedence)),
-            ParseFunctionKind::This => Self::this(self),
-            ParseFunctionKind::Super => Self::super_(self),
         }
     }
 
@@ -648,8 +546,8 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         let operator_kind = self.previous.kind;
         self.parse_precedence(Precedence::Unary);
         match operator_kind {
-            TokenKind::Minus => self.emit(NEGATE),
-            TokenKind::Bang => self.emit(NOT),
+            TokenKind::Minus => self.emit(Opcode::Negate as u8),
+            TokenKind::Bang => self.emit(Opcode::Not as u8),
             _ => unreachable!(),
         }
     }
@@ -659,24 +557,24 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         let parse_rule = Precedence::get_rule(operator_kind);
         self.parse_precedence(parse_rule.precedence.next());
         match operator_kind {
-            TokenKind::Plus => self.emit(ADD),
-            TokenKind::Minus => self.emit(SUBTRACT),
-            TokenKind::Star => self.emit(MULTIPLY),
-            TokenKind::Slash => self.emit(DIVIDE),
-            TokenKind::EqualEqual => self.emit(EQUAL),
-            TokenKind::Greater => self.emit(GREATER),
-            TokenKind::Less => self.emit(LESS),
+            TokenKind::Plus => self.emit(Opcode::Add as u8),
+            TokenKind::Minus => self.emit(Opcode::Subtract as u8),
+            TokenKind::Star => self.emit(Opcode::Multiply as u8),
+            TokenKind::Slash => self.emit(Opcode::Divide as u8),
+            TokenKind::EqualEqual => self.emit(Opcode::Equal as u8),
+            TokenKind::Greater => self.emit(Opcode::Greater as u8),
+            TokenKind::Less => self.emit(Opcode::Less as u8),
             TokenKind::BangEqual => {
-                self.emit(EQUAL);
-                self.emit(NOT);
+                self.emit(Opcode::Equal as u8);
+                self.emit(Opcode::Not as u8);
             }
             TokenKind::GreaterEqual => {
-                self.emit(LESS);
-                self.emit(NOT);
+                self.emit(Opcode::Less as u8);
+                self.emit(Opcode::Not as u8);
             }
             TokenKind::LessEqual => {
-                self.emit(GREATER);
-                self.emit(NOT);
+                self.emit(Opcode::Greater as u8);
+                self.emit(Opcode::Not as u8);
             }
             _ => unreachable!(),
         }
@@ -692,9 +590,9 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
 
     fn literal(&mut self) {
         match self.previous.kind {
-            TokenKind::Nil => self.emit(NIL),
-            TokenKind::True => self.emit(TRUE),
-            TokenKind::False => self.emit(FALSE),
+            TokenKind::Nil => self.emit(Opcode::Nil as u8),
+            TokenKind::True => self.emit(Opcode::True as u8),
+            TokenKind::False => self.emit(Opcode::False as u8),
             _ => unreachable!(),
         }
     }
@@ -702,8 +600,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     fn string(&mut self) {
         let lexeme_len = self.previous.lexeme.len();
         let lexeme = &self.previous.lexeme[1..{ lexeme_len - 1 }];
-        let string = self.state.strings.intern(lexeme);
-        self.emit_constant(Value::String(string));
+        self.emit_constant(Value::String(lexeme.into()));
     }
 
     pub fn variable(&mut self, can_assign: bool) {
@@ -711,31 +608,26 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     }
 
     pub fn named_variable(&mut self, token_name: &str, can_assign: bool) {
-        let (get_operation_bytes, set_operation_bytes) = match self
-            .context
-            .resolve_local(token_name)
-        {
-            Ok(Some(constant_index)) => ((GET_LOCAL, constant_index), (SET_LOCAL, constant_index)),
-            Ok(None) => match self.context.resolve_upvalue(token_name) {
-                Ok(Some(upvalue_index)) => {
-                    ((GET_UPVALUE, upvalue_index), (SET_UPVALUE, upvalue_index))
-                }
+        let (get_operation_bytes, set_operation_bytes) =
+            match self.context.resolve_local(token_name) {
+                Ok(Some(constant_index)) => (
+                    (Opcode::GetLocal as u8, constant_index),
+                    (Opcode::SetLocal as u8, constant_index),
+                ),
                 Ok(None) => {
                     let Some(index) = self.constant_identifier(token_name) else {
                         return;
                     };
-                    ((GET_GLOBAL, index), (SET_GLOBAL, index))
+                    (
+                        (Opcode::GetGlobal as u8, index),
+                        (Opcode::SetGlobal as u8, index),
+                    )
                 }
                 Err(e) => {
                     self.error(&e);
                     return;
                 }
-            },
-            Err(e) => {
-                self.error(&e);
-                return;
-            }
-        };
+            };
 
         if can_assign && self.r#match(TokenKind::Equal) {
             self.expression();
@@ -748,17 +640,17 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
     }
 
     fn and(&mut self) {
-        let and_jump = self.emit_jump(JUMP_IF_FALSE);
-        self.emit(POP);
+        let and_jump = self.emit_jump(Opcode::JumpIfFalse as u8);
+        self.emit(Opcode::Pop as u8);
         self.parse_precedence(Precedence::And);
         self.patch_jump(and_jump);
     }
 
     fn or(&mut self) {
-        let else_jump = self.emit_jump(JUMP_IF_FALSE);
-        let end_jump = self.emit_jump(JUMP);
+        let else_jump = self.emit_jump(Opcode::JumpIfFalse as u8);
+        let end_jump = self.emit_jump(Opcode::Jump as u8);
         self.patch_jump(else_jump);
-        self.emit(POP);
+        self.emit(Opcode::Pop as u8);
         self.parse_precedence(Precedence::Or);
         self.patch_jump(end_jump);
     }
@@ -768,7 +660,7 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
             self.error("Can't have more than 255 arguments.");
             return;
         };
-        self.emit(CALL);
+        self.emit(Opcode::Call as u8);
         self.emit(argument_count);
     }
 
@@ -790,104 +682,32 @@ impl<'source, 'gc> Compiler<'source, 'gc> {
         self.consume(TokenKind::RightParen, "Expect ')' after arguments.");
         Some(argument_count)
     }
-
-    fn dot(&mut self, can_assign: bool) {
-        self.consume(TokenKind::Identifier, "Expect property name after '.'.");
-        let Some(name_index) = self.constant_identifier(self.previous.lexeme) else {
-            return;
-        };
-        if can_assign && self.r#match(TokenKind::Equal) {
-            self.expression();
-            self.emit(SET_PROPERTY);
-            self.emit(name_index);
-        } else if self.r#match(TokenKind::LeftParen) {
-            let Some(argument_count) = self.argument_list() else {
-                self.error("Can't have more than 255 arguments.");
-                return;
-            };
-            self.emit(INVOKE);
-            self.emit(name_index);
-            self.emit(argument_count);
-        } else {
-            self.emit(GET_PROPERTY);
-            self.emit(name_index);
-        }
-    }
-
-    fn this(&mut self) {
-        if self.class_compiler.is_none() {
-            self.error("Can't use 'this' outside of a class.");
-            return;
-        }
-        self.variable(false);
-    }
-
-    fn super_(&mut self) {
-        match &self.class_compiler {
-            None => self.error("Can't use 'super' outside of a class."),
-            Some(class) => {
-                if !class.has_superclass {
-                    self.error("Can't use 'super' in a class with no superclass.");
-                }
-            }
-        }
-        self.consume(TokenKind::Dot, "Expect '.' after 'super'.");
-        self.consume(TokenKind::Identifier, "Expect superclass method name.");
-        let Some(name_index) = self.constant_identifier(self.previous.lexeme) else {
-            return;
-        };
-        self.named_variable("this", false);
-        if self.r#match(TokenKind::LeftParen) {
-            let Some(argument_count) = self.argument_list() else {
-                self.error("Can't have more than 255 arguments.");
-                return;
-            };
-            self.named_variable(SUPER_STRING, false);
-            self.emit(SUPER_INVOKE);
-            self.emit(name_index);
-            self.emit(argument_count);
-        } else {
-            self.named_variable(SUPER_STRING, false);
-            self.emit(GET_SUPER);
-            self.emit(name_index);
-        }
-    }
 }
 
 #[derive(Debug, Default)]
-struct Local<'source> {
+struct Local<'src> {
     pub depth: Option<u8>,
-    pub name: &'source str,
-    pub is_captured: bool,
+    pub name: &'src str,
 }
 
 impl Local<'_> {
     fn reset(&mut self) {
         self.depth = None;
         self.name = "";
-        self.is_captured = false;
     }
 }
 
-#[derive(Default, Debug)]
-struct Upvalue {
-    pub is_local: bool,
-    pub index: u8,
-}
-
-struct CompilerContext<'source, 'gc> {
-    pub enclosing: Option<Box<CompilerContext<'source, 'gc>>>,
-    function: FunctionObject<'gc>,
+struct CompilerContext<'src> {
+    pub enclosing: Option<Box<CompilerContext<'src>>>,
+    function: Function,
     scope_depth: u8,
-    locals: [Local<'source>; LOCALS_MAX_COUNT],
+    locals: [Local<'src>; LOCALS_MAX_COUNT],
     locals_count: usize,
-    pub upvalues: [Upvalue; UPVALUES_MAX_COUNT],
 }
 
-impl<'source, 'gc> CompilerContext<'source, 'gc> {
+impl<'src> CompilerContext<'src> {
     pub fn new(name: &str, function_kind: FunctionKind) -> Self {
-        let function = FunctionObject::new(name.into(), function_kind);
-        let upvalues = std::array::from_fn(|_| Upvalue::default());
+        let function = Function::new(name.into(), function_kind);
         let mut locals = std::array::from_fn(|_| Local::default());
         locals[0].depth = Some(0);
         if function_kind != FunctionKind::Function {
@@ -899,27 +719,7 @@ impl<'source, 'gc> CompilerContext<'source, 'gc> {
             scope_depth: 0,
             locals,
             locals_count: 1,
-            upvalues,
         }
-    }
-
-    fn add_upvalue(&mut self, index: u8, is_local: bool) -> Result<Option<u8>, String> {
-        let upvalue_count = &mut self.function.upvalue_count;
-        if *upvalue_count == UPVALUES_MAX_COUNT {
-            return Err("Too many closure variables in function.".into());
-        }
-        for i in 0..*upvalue_count {
-            let upvalue = &mut self.upvalues[i];
-            if upvalue.index == index && upvalue.is_local == is_local {
-                // Safety: we know i < 256
-                return Ok(Some(i as u8));
-            }
-        }
-        let to_return = *upvalue_count as u8;
-        self.upvalues[*upvalue_count].is_local = is_local;
-        self.upvalues[*upvalue_count].index = index;
-        *upvalue_count += 1;
-        Ok(Some(to_return))
     }
 
     fn resolve_local(&self, token_name: &str) -> Result<Option<u8>, String> {
@@ -932,21 +732,6 @@ impl<'source, 'gc> CompilerContext<'source, 'gc> {
             }
         }
         // Assume global variable
-        Ok(None)
-    }
-
-    fn resolve_upvalue(&mut self, token_name: &str) -> Result<Option<u8>, String> {
-        if let Some(parent_compiler) = self.enclosing.as_deref_mut() {
-            if let Some(local_index) = parent_compiler.resolve_local(token_name)? {
-                parent_compiler.locals[local_index as usize]
-                    .borrow_mut()
-                    .is_captured = true;
-                return self.add_upvalue(local_index, true);
-            }
-            if let Some(upvalue_index) = parent_compiler.resolve_upvalue(token_name)? {
-                return self.add_upvalue(upvalue_index, false);
-            }
-        }
         Ok(None)
     }
 

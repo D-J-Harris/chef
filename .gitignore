@@ -39,10 +39,4 @@ rust-project.json
 .ionide
 
 .DS_STORE
-NOTES.md
-local.lox
-bins/
-*.csv
-*.svg
-*.json
-*.png
+example.chef

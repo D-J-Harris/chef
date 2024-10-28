@@ -28,9 +28,6 @@ pub enum ParseFunctionKind {
     And,
     Or,
     Call,
-    Dot,
-    This,
-    Super,
 }
 
 pub struct ParseRule {
@@ -82,11 +79,6 @@ impl Precedence {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
-            },
-            TokenKind::Dot => ParseRule {
-                prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::Dot,
-                precedence: Precedence::Call,
             },
             TokenKind::Minus => ParseRule {
                 prefix: ParseFunctionKind::Unary,
@@ -220,16 +212,6 @@ impl Precedence {
             },
             TokenKind::Return => ParseRule {
                 prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
-            },
-            TokenKind::Super => ParseRule {
-                prefix: ParseFunctionKind::Super,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
-            },
-            TokenKind::This => ParseRule {
-                prefix: ParseFunctionKind::This,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },

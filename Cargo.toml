@@ -19,13 +19,7 @@ debug_code = []
 
 [dependencies]
 thiserror = "1.0.64"
-gc-arena = "0.5.3"
-ahash = "0.8.11"
-mimalloc = "0.1.43"
 
 [dev-dependencies]
 regex = "1.11.0"
 test-generator = "0.3.1"
-
-[patch.crates-io]
-gc-arena = { path = "../gc-arena" }

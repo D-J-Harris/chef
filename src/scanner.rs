@@ -1,19 +1,15 @@
 use std::collections::HashMap;
-
-use crate::common::SUPER_STRING;
-
-pub struct Scanner<'source> {
+pub struct Scanner<'src> {
     identifiers: HashMap<&'static str, TokenKind>,
-    source: &'source str,
+    source: &'src str,
     start: usize,
     current: usize,
     line: usize,
 }
 
-impl<'source> Scanner<'source> {
-    pub fn new(source: &'source str) -> Self {
+impl<'src> Scanner<'src> {
+    pub fn new(source: &'src str) -> Self {
         let mut identifiers = HashMap::with_capacity(16);
-        identifiers.insert(SUPER_STRING, TokenKind::Super);
         identifiers.insert("and", TokenKind::And);
         identifiers.insert("class", TokenKind::Class);
         identifiers.insert("else", TokenKind::Else);
@@ -25,7 +21,6 @@ impl<'source> Scanner<'source> {
         identifiers.insert("or", TokenKind::Or);
         identifiers.insert("print", TokenKind::Print);
         identifiers.insert("return", TokenKind::Return);
-        identifiers.insert("this", TokenKind::This);
         identifiers.insert("true", TokenKind::True);
         identifiers.insert("var", TokenKind::Var);
         identifiers.insert("while", TokenKind::While);
@@ -48,7 +43,7 @@ impl<'source> Scanner<'source> {
         self.peek() == b'\0'
     }
 
-    pub fn scan_token(&mut self) -> Token<'source> {
+    pub fn scan_token(&mut self) -> Token<'src> {
         self.skip_whitespace();
         self.start = self.current;
         if self.is_at_end() {
@@ -62,7 +57,6 @@ impl<'source> Scanner<'source> {
             b'}' => self.make_token(TokenKind::RightBrace),
             b';' => self.make_token(TokenKind::Semicolon),
             b',' => self.make_token(TokenKind::Comma),
-            b'.' => self.make_token(TokenKind::Dot),
             b'-' => self.make_token(TokenKind::Minus),
             b'+' => self.make_token(TokenKind::Plus),
             b'/' => self.make_token(TokenKind::Slash),
@@ -90,11 +84,11 @@ impl<'source> Scanner<'source> {
         }
     }
 
-    fn lexeme(&self) -> &'source str {
+    fn lexeme(&self) -> &'src str {
         &self.source[self.start..self.current]
     }
 
-    fn make_token(&self, kind: TokenKind) -> Token<'source> {
+    fn make_token(&self, kind: TokenKind) -> Token<'src> {
         Token {
             kind,
             lexeme: self.lexeme(),
@@ -102,7 +96,7 @@ impl<'source> Scanner<'source> {
         }
     }
 
-    fn make_error_token(&self, message: &'static str) -> Token<'source> {
+    fn make_error_token(&self, message: &'static str) -> Token<'src> {
         Token {
             kind: TokenKind::Error,
             lexeme: message,
@@ -110,7 +104,7 @@ impl<'source> Scanner<'source> {
         }
     }
 
-    fn make_string_token(&mut self) -> Token<'source> {
+    fn make_string_token(&mut self) -> Token<'src> {
         while self.peek() != b'"' && !self.is_at_end() {
             if self.advance() == b'\n' {
                 self.line += 1
@@ -123,7 +117,7 @@ impl<'source> Scanner<'source> {
         self.make_token(TokenKind::String)
     }
 
-    fn make_number_token(&mut self) -> Token<'source> {
+    fn make_number_token(&mut self) -> Token<'src> {
         while self.peek().is_ascii_digit() {
             self.current += 1
         }
@@ -139,7 +133,7 @@ impl<'source> Scanner<'source> {
         self.make_token(TokenKind::Number)
     }
 
-    fn make_identifier_token(&mut self) -> Token<'source> {
+    fn make_identifier_token(&mut self) -> Token<'src> {
         loop {
             let byte = self.peek();
             if !byte.is_ascii_digit() && !is_alpha(byte) {
@@ -211,7 +205,6 @@ pub enum TokenKind {
     LeftBrace,
     RightBrace,
     Comma,
-    Dot,
     Minus,
     Plus,
     Semicolon,
@@ -242,8 +235,6 @@ pub enum TokenKind {
     Or,
     Print,
     Return,
-    Super,
-    This,
     True,
     Var,
     While,
@@ -253,14 +244,14 @@ pub enum TokenKind {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Token<'source> {
+pub struct Token<'src> {
     pub kind: TokenKind,
-    pub lexeme: &'source str,
+    pub lexeme: &'src str,
     pub line: usize,
 }
 
-impl<'source> Token<'source> {
-    pub fn new(lexeme: &'source str, line: usize, kind: TokenKind) -> Self {
+impl<'src> Token<'src> {
+    pub fn new(lexeme: &'src str, line: usize, kind: TokenKind) -> Self {
         Self { kind, lexeme, line }
     }
 }
