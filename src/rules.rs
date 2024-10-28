@@ -90,6 +90,11 @@ impl Precedence {
                 infix: ParseFunctionKind::Binary,
                 precedence: Precedence::Term,
             },
+            TokenKind::Dot => ParseRule {
+                prefix: ParseFunctionKind::None,
+                infix: ParseFunctionKind::None,
+                precedence: Precedence::None,
+            },
             TokenKind::Semicolon => ParseRule {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,

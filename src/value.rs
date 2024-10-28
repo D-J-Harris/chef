@@ -6,9 +6,6 @@ use std::fmt::{Debug, Display};
 use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
 use std::rc::Rc;
 
-pub type FunctionIndex = usize;
-pub type NativeFunctionIndex = usize;
-
 #[derive(Debug, Clone)]
 pub enum Value {
     Nil,

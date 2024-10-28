@@ -6,7 +6,6 @@ use crate::chunk::Opcode;
 use crate::common::{CALL_FRAMES_MAX_COUNT, STACK_VALUES_MAX_COUNT};
 use crate::error::{ChefError, InterpretResult};
 use crate::function::Function;
-use crate::native_functions::declare_native_functions;
 use crate::value::Value;
 
 #[derive(Debug, Clone)]
@@ -39,14 +38,12 @@ const FRAME_ARRAY_REPEAT_VALUE: Option<CallFrame> = None;
 const STACK_ARRAY_REPEAT_VALUE: Option<Value> = None;
 impl State {
     pub fn new() -> Self {
-        let mut globals = HashMap::new();
-        let native_functions = declare_native_functions(&mut globals);
         Self {
             frames: [FRAME_ARRAY_REPEAT_VALUE; CALL_FRAMES_MAX_COUNT],
             frame_count: 0,
             stack: [STACK_ARRAY_REPEAT_VALUE; STACK_VALUES_MAX_COUNT],
             stack_top: 0,
-            globals,
+            globals: HashMap::new(),
         }
     }
 

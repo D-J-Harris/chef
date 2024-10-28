@@ -14,7 +14,6 @@ pub struct Compiler<'src> {
     previous: Token<'src>,
     current: Token<'src>,
     context: CompilerContext<'src>,
-    class_compiler: Option<Box<ClassCompiler>>,
     had_error: bool,
     panic_mode: bool,
 }
@@ -30,7 +29,6 @@ impl<'src> Compiler<'src> {
             had_error: false,
             panic_mode: false,
             context,
-            class_compiler: None,
         }
     }
 
@@ -742,19 +740,5 @@ impl<'src> CompilerContext<'src> {
             false => self.function.name.clone(),
         };
         self.function.chunk.disassemble(&name);
-    }
-}
-
-pub struct ClassCompiler {
-    enclosing: Option<Box<ClassCompiler>>,
-    has_superclass: bool,
-}
-
-impl ClassCompiler {
-    fn new(enclosing: Option<Box<ClassCompiler>>) -> Self {
-        Self {
-            enclosing,
-            has_superclass: false,
-        }
     }
 }
