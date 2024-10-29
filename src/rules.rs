@@ -75,6 +75,16 @@ impl Precedence {
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },
+            TokenKind::ParameterAnd => ParseRule {
+                prefix: ParseFunctionKind::None,
+                infix: ParseFunctionKind::None,
+                precedence: Precedence::None,
+            },
+            TokenKind::Hyphen => ParseRule {
+                prefix: ParseFunctionKind::None,
+                infix: ParseFunctionKind::None,
+                precedence: Precedence::None,
+            },
             TokenKind::Comma => ParseRule {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,
@@ -150,7 +160,17 @@ impl Precedence {
                 infix: ParseFunctionKind::Binary,
                 precedence: Precedence::Comparison,
             },
-            TokenKind::Identifier => ParseRule {
+            TokenKind::VarIdent => ParseRule {
+                prefix: ParseFunctionKind::Variable,
+                infix: ParseFunctionKind::None,
+                precedence: Precedence::None,
+            },
+            TokenKind::FunIdent => ParseRule {
+                prefix: ParseFunctionKind::Variable,
+                infix: ParseFunctionKind::None,
+                precedence: Precedence::None,
+            },
+            TokenKind::Ident => ParseRule {
                 prefix: ParseFunctionKind::Variable,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
@@ -169,11 +189,6 @@ impl Precedence {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::And,
                 precedence: Precedence::And,
-            },
-            TokenKind::Class => ParseRule {
-                prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
             },
             TokenKind::Else => ParseRule {
                 prefix: ParseFunctionKind::None,
@@ -220,6 +235,11 @@ impl Precedence {
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },
+            TokenKind::Colon => ParseRule {
+                prefix: ParseFunctionKind::None,
+                infix: ParseFunctionKind::None,
+                precedence: Precedence::None,
+            },
             TokenKind::True => ParseRule {
                 prefix: ParseFunctionKind::Literal,
                 infix: ParseFunctionKind::None,
@@ -241,6 +261,26 @@ impl Precedence {
                 precedence: Precedence::None,
             },
             TokenKind::Eof => ParseRule {
+                prefix: ParseFunctionKind::None,
+                infix: ParseFunctionKind::None,
+                precedence: Precedence::None,
+            },
+            TokenKind::Recipe => ParseRule {
+                prefix: ParseFunctionKind::None,
+                infix: ParseFunctionKind::None,
+                precedence: Precedence::None,
+            },
+            TokenKind::Ingredients => ParseRule {
+                prefix: ParseFunctionKind::None,
+                infix: ParseFunctionKind::None,
+                precedence: Precedence::None,
+            },
+            TokenKind::Utensils => ParseRule {
+                prefix: ParseFunctionKind::None,
+                infix: ParseFunctionKind::None,
+                precedence: Precedence::None,
+            },
+            TokenKind::Steps => ParseRule {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,

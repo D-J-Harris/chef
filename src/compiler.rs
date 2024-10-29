@@ -9,6 +9,13 @@ use crate::scanner::{Token, TokenKind};
 use crate::value::Value;
 use crate::{chunk::Code, scanner::Scanner};
 
+#[derive(PartialEq)]
+enum ParamOrder {
+    First,
+    Middle,
+    Last,
+}
+
 pub struct Compiler<'src> {
     scanner: Scanner<'src>,
     previous: Token<'src>,
@@ -55,8 +62,17 @@ impl<'src> Compiler<'src> {
 
     pub fn compile(mut self) -> Option<Rc<Function>> {
         self.advance();
+        self.parse_title();
+        self.parse_ingredients();
+        self.parse_utensils();
+        self.consume(
+            TokenKind::Steps,
+            "Expect 'Recipe' to contain 'Steps' section",
+        );
         while !self.r#match(TokenKind::Eof) {
-            self.declaration();
+            if self.declaration() {
+                break;
+            }
         }
         let had_error = self.had_error;
         let function = match self.end_compiler() {
@@ -66,6 +82,42 @@ impl<'src> Compiler<'src> {
         match had_error {
             true => None,
             false => Some(Rc::new(function)),
+        }
+    }
+
+    fn parse_title(&mut self) {
+        if !self.r#match(TokenKind::Recipe) {
+            self.error("Script must begin with 'Recipe'.");
+        }
+    }
+
+    fn parse_ingredients(&mut self) {
+        if !self.r#match(TokenKind::Ingredients) {
+            return;
+        }
+
+        while !self.check(TokenKind::Utensils)
+            && !self.check(TokenKind::Steps)
+            && !self.check(TokenKind::Eof)
+        {
+            if !self.r#match(TokenKind::Var) {
+                self.error_at_current("Must define ingredient with a '+'-bulleted list.");
+                break;
+            }
+            self.var_declaration();
+        }
+    }
+
+    fn parse_utensils(&mut self) {
+        if !self.r#match(TokenKind::Utensils) {
+            return;
+        }
+        while !self.check(TokenKind::Steps) && !self.check(TokenKind::Eof) {
+            if !self.r#match(TokenKind::Fun) {
+                self.error_at_current("Must define function with a '*'-bulleted list.");
+                break;
+            }
+            self.fun_declaration();
         }
     }
 
@@ -81,21 +133,17 @@ impl<'src> Compiler<'src> {
         self.current.kind == token_kind
     }
 
-    fn declaration(&mut self) {
-        if self.r#match(TokenKind::Fun) {
-            self.fun_declaration();
-        } else if self.r#match(TokenKind::Var) {
-            self.var_declaration();
-        } else {
-            self.statement();
-        }
+    fn declaration(&mut self) -> bool {
+        let done = self.statement();
         if self.panic_mode {
             self.synchronise();
         }
+        done
     }
 
     fn fun_declaration(&mut self) {
-        let Some(constant_index) = self.parse_variable("Expect function name.") else {
+        self.consume(TokenKind::FunIdent, "Expect utensil function identifier.");
+        let Some(constant_index) = self.parse_variable() else {
             return;
         };
         self.mark_initialized();
@@ -107,27 +155,48 @@ impl<'src> Compiler<'src> {
         self.init_compiler(function_kind);
         self.begin_scope();
 
-        self.consume(TokenKind::LeftParen, "Expect '(' after function name.");
-        if !self.check(TokenKind::RightParen) {
-            loop {
-                let current_arity = &mut self.context.function.arity;
-                if *current_arity == FUNCTION_ARITY_MAX_COUNT {
-                    self.error_at_current("Can't have more than 255 parameters.");
-                    return;
+        self.consume(TokenKind::LeftParen, "Expect 'with' after function name.");
+
+        let mut order = ParamOrder::First;
+        loop {
+            let current_arity = &mut self.context.function.arity;
+            if *current_arity == FUNCTION_ARITY_MAX_COUNT {
+                self.error_at_current("Can't have more than 255 parameters.");
+                return;
+            }
+            *current_arity += 1;
+            self.consume(TokenKind::Ident, "Expect parameter name.");
+            let Some(constant_index) = self.parse_variable() else {
+                return;
+            };
+            self.define_variable(constant_index);
+
+            match self.current.kind {
+                TokenKind::Comma => {
+                    order = ParamOrder::Middle;
+                    self.advance();
+                    continue;
                 }
-                *current_arity += 1;
-                let Some(constant_index) = self.parse_variable("Expect parameter name.") else {
-                    return;
-                };
-                self.define_variable(constant_index);
-                if !self.r#match(TokenKind::Comma) {
+                TokenKind::ParameterAnd => {
+                    if order == ParamOrder::Last {
+                        self.error("Can not use the 'and' list keyword multiple times.");
+                    }
+                    order = ParamOrder::Last;
+                    self.advance();
+                    continue;
+                }
+                TokenKind::Hyphen => {
+                    if order == ParamOrder::Middle {
+                        self.error("Function parameters should be a list where the final element is preceded by 'and'");
+                    }
+                    break;
+                }
+                _ => {
+                    self.error("Expect ',' or 'and' to continue parameter list, or '-' for the first step.");
                     break;
                 }
             }
         }
-
-        self.consume(TokenKind::RightParen, "Expect ')' after parameters.");
-        self.consume(TokenKind::LeftBrace, "Expect '{' before function body.");
         self.block();
 
         let Some(function) = self.end_compiler() else {
@@ -148,7 +217,8 @@ impl<'src> Compiler<'src> {
     }
 
     fn var_declaration(&mut self) {
-        let Some(constant_index) = self.parse_variable("Expect variable name.") else {
+        self.consume(TokenKind::VarIdent, "Expect ingredient identifier.");
+        let Some(constant_index) = self.parse_variable() else {
             return;
         };
         if self.r#match(TokenKind::Equal) {
@@ -160,8 +230,7 @@ impl<'src> Compiler<'src> {
         self.define_variable(constant_index);
     }
 
-    fn parse_variable(&mut self, error_message: &str) -> Option<u8> {
-        self.consume(TokenKind::Identifier, error_message);
+    fn parse_variable(&mut self) -> Option<u8> {
         self.declare_variable();
         if self.context.scope_depth > 0 {
             // Return dummy variable since locals aren't looked up by name at runtime
@@ -228,8 +297,20 @@ impl<'src> Compiler<'src> {
         self.context.locals[self.context.locals_count - 1].depth = Some(self.context.scope_depth);
     }
 
-    fn statement(&mut self) {
-        if self.r#match(TokenKind::Print) {
+    fn statement(&mut self) -> bool {
+        if !self.r#match(TokenKind::Hyphen) {
+            if self.check(TokenKind::Steps) {
+                self.error_at_current("Steps should end with a 'finish' step.");
+                return true;
+            } else {
+                self.error_at_current("Steps should be preceded by a bullet point character '-'.");
+                self.advance();
+                return true;
+            }
+        }
+        if self.r#match(TokenKind::RightBrace) {
+            return true;
+        } else if self.r#match(TokenKind::Print) {
             self.print_statement();
         } else if self.r#match(TokenKind::For) {
             self.for_statement();
@@ -246,6 +327,7 @@ impl<'src> Compiler<'src> {
         } else {
             self.expression_statement();
         }
+        false
     }
 
     fn begin_scope(&mut self) {
@@ -268,10 +350,11 @@ impl<'src> Compiler<'src> {
     }
 
     fn block(&mut self) {
-        while !self.check(TokenKind::RightBrace) && !self.check(TokenKind::Eof) {
-            self.declaration();
+        while !self.check(TokenKind::Eof) {
+            if self.declaration() {
+                break;
+            }
         }
-        self.consume(TokenKind::RightBrace, "Expect '}' after block.");
     }
 
     fn print_statement(&mut self) {
@@ -477,13 +560,16 @@ impl<'src> Compiler<'src> {
                 return;
             }
             match self.current.kind {
-                TokenKind::Class
-                | TokenKind::Fun
+                TokenKind::Fun
                 | TokenKind::Var
                 | TokenKind::For
                 | TokenKind::If
                 | TokenKind::While
                 | TokenKind::Print
+                | TokenKind::Recipe
+                | TokenKind::Ingredients
+                | TokenKind::Utensils
+                | TokenKind::Steps
                 | TokenKind::Return => return,
                 _ => (),
             }
@@ -664,20 +750,38 @@ impl<'src> Compiler<'src> {
 
     fn argument_list(&mut self) -> Option<u8> {
         let mut argument_count: u8 = 0;
-        if !self.check(TokenKind::RightParen) {
-            loop {
-                self.expression();
-                argument_count = match argument_count.checked_add(1) {
-                    Some(count) => count,
-                    None => return None,
-                };
-
-                if !self.r#match(TokenKind::Comma) {
+        let mut order = ParamOrder::First;
+        loop {
+            self.expression();
+            argument_count = match argument_count.checked_add(1) {
+                Some(count) => count,
+                None => return None,
+            };
+            match self.current.kind {
+                TokenKind::Comma => {
+                    order = ParamOrder::Middle;
+                    self.advance();
+                    continue;
+                }
+                TokenKind::ParameterAnd => {
+                    order = ParamOrder::Last;
+                    self.advance();
+                    continue;
+                }
+                TokenKind::Semicolon => {
+                    if order == ParamOrder::Middle {
+                        self.error("function arguments should be a list where the final element is preceded by 'and'");
+                    }
+                    break;
+                }
+                _ => {
+                    self.error(
+                        "Expect ',' or 'and' to continue argument list, or ';' to mark the end of function invocation.",
+                    );
                     break;
                 }
             }
         }
-        self.consume(TokenKind::RightParen, "Expect ')' after arguments.");
         Some(argument_count)
     }
 }

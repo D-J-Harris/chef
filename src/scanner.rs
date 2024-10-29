@@ -9,21 +9,38 @@ pub struct Scanner<'src> {
 
 impl<'src> Scanner<'src> {
     pub fn new(source: &'src str) -> Self {
-        let mut identifiers = HashMap::with_capacity(16);
-        identifiers.insert("and", TokenKind::And);
-        identifiers.insert("class", TokenKind::Class);
-        identifiers.insert("else", TokenKind::Else);
+        let mut identifiers = HashMap::new();
+        identifiers.insert("compliments", TokenKind::And);
+        identifiers.insert("and", TokenKind::ParameterAnd);
+        identifiers.insert("plus", TokenKind::Plus);
+        identifiers.insert("subtract", TokenKind::Minus);
+        identifiers.insert("with", TokenKind::LeftParen);
+        identifiers.insert("combine", TokenKind::Star);
+        identifiers.insert("otherwise", TokenKind::Else);
         identifiers.insert("false", TokenKind::False);
-        identifiers.insert("for", TokenKind::For);
-        identifiers.insert("fun", TokenKind::Fun);
-        identifiers.insert("if", TokenKind::If);
         identifiers.insert("nil", TokenKind::Nil);
         identifiers.insert("or", TokenKind::Or);
-        identifiers.insert("print", TokenKind::Print);
-        identifiers.insert("return", TokenKind::Return);
+        identifiers.insert("taste", TokenKind::Print);
+        identifiers.insert("begin", TokenKind::LeftBrace);
+        identifiers.insert("serve", TokenKind::Return);
         identifiers.insert("true", TokenKind::True);
-        identifiers.insert("var", TokenKind::Var);
-        identifiers.insert("while", TokenKind::While);
+        identifiers.insert("stir", TokenKind::While);
+        identifiers.insert("Recipe", TokenKind::Recipe);
+        identifiers.insert("finish", TokenKind::RightBrace);
+        identifiers.insert("Ingredients", TokenKind::Ingredients);
+        identifiers.insert("Utensils", TokenKind::Utensils);
+        identifiers.insert("Steps", TokenKind::Steps);
+
+        identifiers.insert("egg", TokenKind::VarIdent);
+        identifiers.insert("flour", TokenKind::VarIdent);
+        identifiers.insert("sugar", TokenKind::VarIdent);
+        identifiers.insert("milk", TokenKind::VarIdent);
+        identifiers.insert("chocolate", TokenKind::VarIdent);
+        identifiers.insert("banana", TokenKind::VarIdent);
+
+        identifiers.insert("whisk", TokenKind::FunIdent);
+        identifiers.insert("oven", TokenKind::FunIdent);
+        identifiers.insert("spatula", TokenKind::FunIdent);
         Self {
             identifiers,
             source,
@@ -51,17 +68,14 @@ impl<'src> Scanner<'src> {
         }
         let byte = self.advance();
         match byte {
-            b'(' => self.make_token(TokenKind::LeftParen),
-            b')' => self.make_token(TokenKind::RightParen),
-            b'{' => self.make_token(TokenKind::LeftBrace),
-            b'}' => self.make_token(TokenKind::RightBrace),
             b';' => self.make_token(TokenKind::Semicolon),
+            b':' => self.make_token(TokenKind::Colon),
             b',' => self.make_token(TokenKind::Comma),
             b'.' => self.make_token(TokenKind::Dot),
-            b'-' => self.make_token(TokenKind::Minus),
-            b'+' => self.make_token(TokenKind::Plus),
+            b'-' => self.make_token(TokenKind::Hyphen),
+            b'+' => self.make_token(TokenKind::Var),
             b'/' => self.make_token(TokenKind::Slash),
-            b'*' => self.make_token(TokenKind::Star),
+            b'*' => self.make_token(TokenKind::Fun),
             b'!' => match self.is_match(b'=') {
                 true => self.make_token(TokenKind::BangEqual),
                 false => self.make_token(TokenKind::Bang),
@@ -81,7 +95,7 @@ impl<'src> Scanner<'src> {
             b'"' => self.make_string_token(),
             b if b.is_ascii_digit() => self.make_number_token(),
             b if is_alpha(b) => self.make_identifier_token(),
-            _ => unimplemented!(),
+            _ => self.make_error_token("Invalid character"),
         }
     }
 
@@ -144,7 +158,7 @@ impl<'src> Scanner<'src> {
         }
         let kind = match self.identifiers.get(self.lexeme()) {
             Some(kind) => *kind,
-            None => TokenKind::Identifier,
+            None => TokenKind::Ident,
         };
         self.make_token(kind)
     }
@@ -209,9 +223,11 @@ pub enum TokenKind {
     Minus,
     Plus,
     Dot,
+    Colon,
     Semicolon,
     Slash,
     Star,
+    Hyphen,
     // One or two character tokens.
     Bang,
     BangEqual,
@@ -222,12 +238,13 @@ pub enum TokenKind {
     Less,
     LessEqual,
     // Literals.
-    Identifier,
+    VarIdent,
+    FunIdent,
+    Ident,
     String,
     Number,
     // Keywords.
     And,
-    Class,
     Else,
     False,
     For,
@@ -240,6 +257,11 @@ pub enum TokenKind {
     True,
     Var,
     While,
+    ParameterAnd,
+    Recipe,
+    Ingredients,
+    Utensils,
+    Steps,
     // Other.
     Error,
     Eof,
