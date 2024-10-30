@@ -1,6 +1,6 @@
 use crate::scanner::TokenKind;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, PartialOrd, Ord, Clone, Copy)]
 pub enum Precedence {
     None,
     Assignment, // =

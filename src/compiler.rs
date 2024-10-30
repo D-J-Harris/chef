@@ -179,7 +179,9 @@ impl<'src> Compiler<'src> {
                 }
                 TokenKind::ParameterAnd => {
                     if order == ParamOrder::Last {
-                        self.error("Can not use the 'and' list keyword multiple times.");
+                        self.error(
+                            "Can not use the 'and' list keyword multiple times, use ',' instead.",
+                        );
                     }
                     order = ParamOrder::Last;
                     self.advance();
@@ -300,10 +302,12 @@ impl<'src> Compiler<'src> {
     fn statement(&mut self) -> bool {
         if !self.r#match(TokenKind::Hyphen) {
             if self.check(TokenKind::Steps) {
-                self.error_at_current("Steps should end with a 'finish' step.");
+                self.error_at_current("Instructions should end with a 'finish' step.");
                 return true;
             } else {
-                self.error_at_current("Steps should be preceded by a bullet point character '-'.");
+                self.error_at_current(
+                    "Instructions should be preceded by a bullet point character '-'.",
+                );
                 self.advance();
                 return true;
             }
@@ -364,17 +368,16 @@ impl<'src> Compiler<'src> {
     }
 
     fn if_statement(&mut self) {
-        self.consume(TokenKind::LeftParen, "Expect '(' after 'if'.");
+        self.consume(TokenKind::LeftParen, "Expect 'with' after 'check'.");
         self.expression();
-        self.consume(TokenKind::RightParen, "Expect ')' after condition.");
         let then_jump = self.emit_jump(Opcode::JumpIfFalse as u8);
         self.emit(Opcode::Pop as u8);
-        self.statement();
+        self.block();
         let else_jump = self.emit_jump(Opcode::Jump as u8);
         self.patch_jump(then_jump);
         self.emit(Opcode::Pop as u8);
         if self.r#match(TokenKind::Else) {
-            self.statement();
+            self.block();
         }
         self.patch_jump(else_jump);
     }
@@ -585,7 +588,6 @@ impl<'src> Compiler<'src> {
             return;
         };
         self.execute_rule(prefix_rule, precedence);
-
         while precedence <= Precedence::get_rule(self.current.kind).precedence {
             self.advance();
             let infix_rule = Precedence::get_rule(self.previous.kind).infix;
@@ -623,7 +625,6 @@ impl<'src> Compiler<'src> {
 
     fn grouping(&mut self) {
         self.expression();
-        self.consume(TokenKind::RightParen, "Expect ')' after expression.");
     }
 
     fn unary(&mut self) {

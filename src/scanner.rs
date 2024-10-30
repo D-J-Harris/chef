@@ -14,6 +14,7 @@ impl<'src> Scanner<'src> {
         identifiers.insert("and", TokenKind::ParameterAnd);
         identifiers.insert("plus", TokenKind::Plus);
         identifiers.insert("subtract", TokenKind::Minus);
+        identifiers.insert("check", TokenKind::If);
         identifiers.insert("with", TokenKind::LeftParen);
         identifiers.insert("combine", TokenKind::Star);
         identifiers.insert("otherwise", TokenKind::Else);
