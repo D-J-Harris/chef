@@ -143,12 +143,11 @@ impl<'src> Compiler<'src> {
 
     fn fun_declaration(&mut self) {
         self.consume(TokenKind::FunIdent, "Expect utensil function identifier.");
-        let Some(constant_index) = self.parse_variable() else {
+        let Some(_constant_index) = self.parse_variable() else {
             return;
         };
-        self.mark_initialized();
         self.function(FunctionKind::Function);
-        self.define_variable(constant_index);
+        self.mark_initialized();
     }
 
     fn function(&mut self, function_kind: FunctionKind) {
@@ -166,10 +165,10 @@ impl<'src> Compiler<'src> {
             }
             *current_arity += 1;
             self.consume(TokenKind::Ident, "Expect parameter name.");
-            let Some(constant_index) = self.parse_variable() else {
+            let Some(_constant_index) = self.parse_variable() else {
                 return;
             };
-            self.define_variable(constant_index);
+            self.mark_initialized();
 
             match self.current.kind {
                 TokenKind::Comma => {
@@ -220,7 +219,7 @@ impl<'src> Compiler<'src> {
 
     fn var_declaration(&mut self) {
         self.consume(TokenKind::VarIdent, "Expect ingredient identifier.");
-        let Some(constant_index) = self.parse_variable() else {
+        let Some(_constant_index) = self.parse_variable() else {
             return;
         };
         if self.r#match(TokenKind::Equal) {
@@ -229,7 +228,7 @@ impl<'src> Compiler<'src> {
             self.emit(Opcode::Nil as u8);
         }
         self.consume(TokenKind::Semicolon, "Expect ';' after value.");
-        self.define_variable(constant_index);
+        self.mark_initialized();
     }
 
     fn parse_variable(&mut self) -> Option<u8> {
@@ -241,13 +240,10 @@ impl<'src> Compiler<'src> {
         self.constant_identifier(self.previous.lexeme)
     }
 
+    // Declaration only happens in top-level scope, so no concern here over enclosing compiler locals
     fn declare_variable(&mut self) {
-        if self.context.scope_depth == 0 {
-            return;
-        }
         let variable_name = self.previous.lexeme;
 
-        // Detect clashing variable names in current scope (does not include shadowing, which is allowed).
         let mut has_match_name_error = false;
         for local in self.context.locals.iter().rev() {
             if let Some(depth) = local.depth {
@@ -260,7 +256,7 @@ impl<'src> Compiler<'src> {
             }
         }
         if has_match_name_error {
-            self.error("Already a variable with this name in this scope.");
+            self.error("Identifier already defined in this scope.");
         }
         self.add_local(variable_name)
     }
@@ -283,19 +279,7 @@ impl<'src> Compiler<'src> {
             .add_constant(Value::String(token_name.into()))
     }
 
-    fn define_variable(&mut self, constant_index: u8) {
-        if self.context.scope_depth > 0 {
-            self.mark_initialized();
-            return;
-        }
-        self.emit(Opcode::DefineGlobal as u8);
-        self.emit(constant_index);
-    }
-
     fn mark_initialized(&mut self) {
-        if self.context.scope_depth == 0 {
-            return;
-        }
         self.context.locals[self.context.locals_count - 1].depth = Some(self.context.scope_depth);
     }
 
@@ -316,8 +300,6 @@ impl<'src> Compiler<'src> {
             return true;
         } else if self.r#match(TokenKind::Print) {
             self.print_statement();
-        } else if self.r#match(TokenKind::For) {
-            self.for_statement();
         } else if self.r#match(TokenKind::If) {
             self.if_statement();
         } else if self.r#match(TokenKind::Return) {
@@ -368,7 +350,6 @@ impl<'src> Compiler<'src> {
     }
 
     fn if_statement(&mut self) {
-        self.consume(TokenKind::LeftParen, "Expect 'with' after 'check'.");
         self.expression();
         let then_jump = self.emit_jump(Opcode::JumpIfFalse as u8);
         self.emit(Opcode::Pop as u8);
@@ -386,7 +367,6 @@ impl<'src> Compiler<'src> {
         let current_function_kind = self.context.function.kind;
         if current_function_kind == FunctionKind::Script {
             self.error("Can't return from top-level code.");
-            return;
         }
         if self.r#match(TokenKind::Semicolon) {
             self.emit_return();
@@ -418,62 +398,15 @@ impl<'src> Compiler<'src> {
 
     fn while_statement(&mut self) {
         let loop_start = self.current_chunk().code.len();
-        self.consume(TokenKind::LeftParen, "Expect '(' after 'while'.");
         self.expression();
-        self.consume(TokenKind::RightParen, "Expect ')' after condition.");
 
         let exit_jump = self.emit_jump(Opcode::JumpIfFalse as u8);
         self.emit(Opcode::Pop as u8);
-        self.statement();
+        self.block();
         self.emit_loop(loop_start);
 
         self.patch_jump(exit_jump);
         self.emit(Opcode::Pop as u8);
-    }
-
-    fn for_statement(&mut self) {
-        self.begin_scope();
-        self.consume(TokenKind::LeftParen, "Expect '(' after 'for'.");
-        if self.r#match(TokenKind::Semicolon) {
-            // No initializer
-        } else if self.r#match(TokenKind::Var) {
-            self.var_declaration();
-        } else {
-            self.expression_statement();
-        }
-        let mut loop_start = self.current_chunk().code.len();
-
-        // Condition clause.
-        let mut exit_jump = None;
-        if !self.r#match(TokenKind::Semicolon) {
-            self.expression();
-            self.consume(TokenKind::Semicolon, "Expect ';' after loop condition.");
-            // Jump out of the loop if the condition is false.
-            exit_jump = Some(self.emit_jump(Opcode::JumpIfFalse as u8));
-            self.emit(Opcode::Pop as u8);
-        }
-
-        // Incremenet clause.
-        if !self.r#match(TokenKind::RightParen) {
-            let body_jump = self.emit_jump(Opcode::Jump as u8);
-            let increment_start = self.current_chunk().code.len();
-            self.expression();
-            self.emit(Opcode::Pop as u8);
-            self.consume(TokenKind::RightParen, "Expect ')' after for clauses.");
-            self.emit_loop(loop_start);
-            loop_start = increment_start;
-            self.patch_jump(body_jump);
-        }
-
-        self.statement();
-        self.emit_loop(loop_start);
-
-        // Patch exit loop jump from condition clause.
-        if let Some(exit_jump) = exit_jump {
-            self.patch_jump(exit_jump);
-            self.emit(Opcode::Pop as u8);
-        }
-        self.end_scope();
     }
 
     fn emit_loop(&mut self, loop_start: usize) {
@@ -565,7 +498,6 @@ impl<'src> Compiler<'src> {
             match self.current.kind {
                 TokenKind::Fun
                 | TokenKind::Var
-                | TokenKind::For
                 | TokenKind::If
                 | TokenKind::While
                 | TokenKind::Print
@@ -813,15 +745,13 @@ impl<'src> CompilerContext<'src> {
         let function = Function::new(name.into(), function_kind);
         let mut locals = std::array::from_fn(|_| Local::default());
         locals[0].depth = Some(0);
-        if function_kind != FunctionKind::Function {
-            locals[0].name = "this";
-        }
+
         Self {
             enclosing: None,
             function,
             scope_depth: 0,
             locals,
-            locals_count: 1,
+            locals_count: 0,
         }
     }
 

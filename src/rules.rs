@@ -60,11 +60,6 @@ impl Precedence {
                 infix: ParseFunctionKind::Call,
                 precedence: Precedence::Call,
             },
-            TokenKind::RightParen => ParseRule {
-                prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
-            },
             TokenKind::LeftBrace => ParseRule {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,
@@ -200,18 +195,13 @@ impl Precedence {
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },
-            TokenKind::For => ParseRule {
-                prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
-            },
             TokenKind::Fun => ParseRule {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },
             TokenKind::If => ParseRule {
-                prefix: ParseFunctionKind::None,
+                prefix: ParseFunctionKind::Grouping,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },
@@ -251,7 +241,7 @@ impl Precedence {
                 precedence: Precedence::None,
             },
             TokenKind::While => ParseRule {
-                prefix: ParseFunctionKind::None,
+                prefix: ParseFunctionKind::Grouping,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },

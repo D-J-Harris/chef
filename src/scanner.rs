@@ -22,10 +22,10 @@ impl<'src> Scanner<'src> {
         identifiers.insert("nil", TokenKind::Nil);
         identifiers.insert("or", TokenKind::Or);
         identifiers.insert("taste", TokenKind::Print);
-        identifiers.insert("begin", TokenKind::LeftBrace);
+        identifiers.insert("do", TokenKind::LeftBrace);
         identifiers.insert("serve", TokenKind::Return);
         identifiers.insert("true", TokenKind::True);
-        identifiers.insert("stir", TokenKind::While);
+        identifiers.insert("while", TokenKind::While);
         identifiers.insert("Recipe", TokenKind::Recipe);
         identifiers.insert("finish", TokenKind::RightBrace);
         identifiers.insert("Ingredients", TokenKind::Ingredients);
@@ -40,8 +40,8 @@ impl<'src> Scanner<'src> {
         identifiers.insert("banana", TokenKind::VarIdent);
 
         identifiers.insert("whisk", TokenKind::FunIdent);
-        identifiers.insert("oven", TokenKind::FunIdent);
-        identifiers.insert("spatula", TokenKind::FunIdent);
+        identifiers.insert("bake", TokenKind::FunIdent);
+        identifiers.insert("cook", TokenKind::FunIdent);
         Self {
             identifiers,
             source,
@@ -217,7 +217,6 @@ fn is_alpha(byte: u8) -> bool {
 pub enum TokenKind {
     // Single-character tokens.
     LeftParen,
-    RightParen,
     LeftBrace,
     RightBrace,
     Comma,
@@ -248,7 +247,6 @@ pub enum TokenKind {
     And,
     Else,
     False,
-    For,
     Fun,
     If,
     Nil,

@@ -12,6 +12,8 @@ pub struct Function {
     pub arity: u8,
     pub chunk: Code,
     pub kind: FunctionKind,
+    pub upvalues: Vec<usize>,
+    pub upvalues_count: usize,
 }
 
 impl Function {
@@ -22,6 +24,8 @@ impl Function {
             name,
             kind,
             arity: 0,
+            upvalues: Vec::new(),
+            upvalues_count: 0,
         }
     }
 }

@@ -242,6 +242,7 @@ impl State {
     }
 
     fn op_print(&mut self) {
+        println!("print stack before pop {:?}", &self.stack[1]);
         let constant = self.pop();
         println!("{constant}");
     }
@@ -312,6 +313,7 @@ impl State {
         let stack_index = self.current_frame().stack_index + frame_index as usize;
         let replacement_value = self.peek(0);
         self.stack[stack_index] = Some(replacement_value.clone());
+        println!("stack after set_local {:?}", &self.stack[1]);
     }
 
     fn op_call(&mut self) -> InterpretResult<()> {
