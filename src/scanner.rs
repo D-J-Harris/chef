@@ -77,7 +77,6 @@ impl<'src> Scanner<'src> {
             b'-' => self.make_token(TokenKind::Hyphen),
             b'+' => self.make_token(TokenKind::Var),
             b'/' => self.make_token(TokenKind::Slash),
-            b'*' => self.make_token(TokenKind::Fun),
             b'!' => match self.is_match(b'=') {
                 true => self.make_token(TokenKind::BangEqual),
                 false => self.make_token(TokenKind::Bang),
@@ -248,7 +247,6 @@ pub enum TokenKind {
     And,
     Else,
     False,
-    Fun,
     If,
     Nil,
     Or,

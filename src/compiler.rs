@@ -92,17 +92,20 @@ impl<'src> Compiler<'src> {
         if !self.r#match(TokenKind::Ingredients) {
             return;
         }
-
-        while !self.check(TokenKind::Utensils)
-            && !self.check(TokenKind::Steps)
-            && !self.check(TokenKind::Eof)
-        {
-            if !self.r#match(TokenKind::Var) {
-                self.error_at_current("Must define ingredient with a '+'-bulleted list.");
+        while !self.is_end_ingredients() {
+            if !self.check(TokenKind::Var) {
+                self.error_at_current("Ingredient declarations should begin with '+'.");
                 break;
             }
+            self.advance();
             self.var_declaration();
         }
+    }
+
+    fn is_end_ingredients(&self) -> bool {
+        self.check(TokenKind::Utensils)
+            || self.check(TokenKind::Steps)
+            || self.check(TokenKind::Eof)
     }
 
     fn parse_utensils(&mut self) {
@@ -110,8 +113,8 @@ impl<'src> Compiler<'src> {
             return;
         }
         while !self.check(TokenKind::Steps) && !self.check(TokenKind::Eof) {
-            if !self.r#match(TokenKind::Fun) {
-                self.error_at_current("Must define function with a '*'-bulleted list.");
+            if !self.r#match(TokenKind::Var) {
+                self.error_at_current("Must define function with a '+'-bulleted list.");
                 break;
             }
             self.fun_declaration();
@@ -215,7 +218,9 @@ impl<'src> Compiler<'src> {
         } else {
             self.emit(Opcode::Nil as u8);
         }
-        self.consume_end();
+        if !(self.is_end_ingredients() || self.check(TokenKind::Var)) {
+            self.error_at_current("Ingredient declaration termination invalid.");
+        }
     }
 
     fn define_variable(&mut self) {
@@ -434,8 +439,7 @@ impl<'src> Compiler<'src> {
                 return;
             }
             match self.current.kind {
-                TokenKind::Fun
-                | TokenKind::Var
+                TokenKind::Var
                 | TokenKind::If
                 | TokenKind::While
                 | TokenKind::Print
