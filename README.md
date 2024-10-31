@@ -1,14 +1,39 @@
 # `chef`
 
-This branch hosts the core Lox implementation, created following Part III of the book [Crafting Interpreters](https://craftinginterpreters.com/) and porting the C bytecode interpreter into Rust
+![Icon](./colouring/assets/icon_256x256.png "chef icon")
+
+### Chef is a stack-based single-scope language designed to read like a recipe
+
+The language was created following completion of Part III of the book [Crafting Interpreters](https://craftinginterpreters.com/), porting the C bytecode interpreter into Rust (the implementation of Lox, with classes, closures etc. can be found on the [lox](https://github.com/D-J-Harris/chef/tree/lox) branch)
+
+## Features
+
+- Function support and basic control flow including if-statements and while-loops ([grammar here](./GRAMMAR.md))
+- Syntax highlighting is provided by the VSCode extension `chef-colouring` ([source here](./colouring/))
+
+    // "markup": {
+    //   "patterns": [
+    //     {
+    //       "name": "markup.heading.chef",
+    //       "match": "\\b(Recipe|Ingredients|Utensils|Steps)\\b"
+    //     }
+    //   ]
+    // },
 
 ## Usage
 
-Run either with zero arguments as a REPL, or with one file
+To build local, clone this repository and build with
+
+```shell
+git clone git@github.com:D-J-Harris/chef.git
+cargo build --release
+```
+
+Run either with zero arguments as a REPL, or compile source code at the `.chef` or `.recipe` extensions
 
 ```rust
 chef
-chef <.chef file>
+chef <.chef | .recipe file>
 ```
 
 ## Features Flags
@@ -22,13 +47,11 @@ chef <.chef file>
 cargo test
 ```
 
-## Copyright Notice
+## License
 
 Codebases and references all MIT licensed, including [this repository](./LICENSE)
 
 - [Test and benchmark files](./tests/suite/) adapted from the [book](https://github.com/munificent/craftinginterpreters)
 - [Test suite runner code](./tests/run.rs) inspired from [loxido](https://github.com/ceronman/loxido/tree/unsafe)
 
-```
-
-```
+Icon by [tulpahn, on Freepik](https://www.freepik.com/icon/chef_3808474)

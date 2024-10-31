@@ -5,9 +5,11 @@ use crate::common::{CALL_FRAMES_MAX_COUNT, STACK_VALUES_MAX_COUNT};
 use crate::error::{ChefError, InterpretResult};
 use crate::value::Value;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct CallFrame {
     pub name: String,
+    pub line: usize,
+    pub stack_index: usize,
     pub continuation_ip: usize,
 }
 
@@ -39,10 +41,15 @@ impl State {
         self.frame_count = 0;
     }
 
+    fn current_frame_mut(&mut self) -> &mut CallFrame {
+        self.frames[self.frame_count - 1].as_mut().unwrap()
+    }
+
     pub fn stack_error(&mut self) {
+        self.current_frame_mut().line = self.code.lines[self.ip];
         for frame_count in (0..self.frame_count).rev() {
             let frame = self.frames[frame_count].as_ref().unwrap();
-            let line = self.code.lines[self.ip - 1];
+            let line = frame.line;
             match frame.name.is_empty() {
                 true => eprintln!("[line {line}] in script"),
                 false => eprintln!("[line {line}] in {}", frame.name),
@@ -62,7 +69,7 @@ impl State {
 
     fn pop_frame(&mut self) -> CallFrame {
         self.frame_count -= 1;
-        std::mem::replace(&mut self.frames[self.frame_count], None).unwrap()
+        self.frames[self.frame_count].take().unwrap()
     }
 
     pub fn push(&mut self, value: Value) -> InterpretResult<()> {
@@ -76,7 +83,7 @@ impl State {
 
     fn pop(&mut self) -> Value {
         self.stack_top -= 1;
-        std::mem::replace(&mut self.stack[self.stack_top], None).unwrap()
+        self.stack[self.stack_top].take().unwrap()
     }
 
     fn peek(&self, depth: usize) -> &Value {
@@ -145,7 +152,7 @@ impl State {
         let (b, mut a) = (self.pop(), self.pop());
         match (a.clone(), &b) {
             (Value::String(mut a), Value::String(b)) => {
-                a.push_str(&b);
+                a.push_str(b);
                 self.push(Value::String(a.to_string()))?;
             }
             _ => {
@@ -227,33 +234,43 @@ impl State {
 
     fn op_loop(&mut self) {
         let offset = self.read_u16();
-        self.ip -= offset as usize;
+        self.ip -= offset;
     }
 
     fn op_jump(&mut self) {
         let offset = self.read_u16();
-        self.ip += offset as usize
+        self.ip += offset
     }
 
     fn op_jump_if_false(&mut self) {
         let offset = self.read_u16();
         let value = self.peek(0);
         if value.falsey() {
-            self.ip += offset as usize;
+            self.ip += offset;
         }
     }
 
     fn op_get_local(&mut self) -> InterpretResult<()> {
-        let frame_index = self.read_byte();
-        let value = self.stack[frame_index as usize].as_ref().unwrap();
+        let index = self.read_byte();
+        let frame_pops = self.read_byte();
+        let frame = self.frames[self.frame_count - 1 - frame_pops as usize]
+            .as_ref()
+            .unwrap();
+        let stack_index = frame.stack_index + index as usize;
+        let value = self.stack[stack_index].as_ref().unwrap();
         self.push(value.clone())?;
         Ok(())
     }
 
     fn op_set_local(&mut self) {
-        let frame_index = self.read_byte();
+        let index = self.read_byte();
+        let frame_pops = self.read_byte();
+        let frame = self.frames[self.frame_count - 1 - frame_pops as usize]
+            .as_ref()
+            .unwrap();
+        let stack_index = frame.stack_index + index as usize;
         let replacement_value = self.peek(0);
-        self.stack[frame_index as usize] = Some(replacement_value.clone());
+        self.stack[stack_index] = Some(replacement_value.clone());
     }
 
     fn op_call(&mut self) -> InterpretResult<()> {
@@ -274,18 +291,21 @@ impl State {
                 if function.arity != argument_count {
                     return Err(ChefError::FunctionArity(function.arity, argument_count));
                 }
+                self.current_frame_mut().line = self.code.lines[self.ip];
                 self.push_frame(CallFrame {
                     name: function.name.clone(),
+                    line: 0,
+                    stack_index: self.stack_top - argument_count as usize,
                     continuation_ip: self.ip,
                 })?;
-                self.ip = function.index;
+                self.ip = function.ip_start;
                 Ok(())
             }
             _ => Err(ChefError::InvalidCallee),
         }
     }
 
-    fn read_constant<'a>(&self, index: u8) -> InterpretResult<Value> {
+    fn read_constant(&self, index: u8) -> InterpretResult<Value> {
         let value = self
             .code
             .constants

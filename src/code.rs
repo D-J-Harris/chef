@@ -53,6 +53,11 @@ impl Code {
     }
 
     pub fn add_constant(&mut self, value: Value) -> Option<u8> {
+        for constant_index in 0..self.constants_count {
+            if value == self.constants[constant_index] {
+                return Some(constant_index as u8);
+            }
+        }
         if self.constants_count == CONSTANTS_MAX_COUNT {
             return None;
         }

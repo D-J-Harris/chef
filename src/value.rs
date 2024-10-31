@@ -8,7 +8,7 @@ use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
 pub struct Function {
     pub name: String,
     pub arity: u8,
-    pub index: usize,
+    pub ip_start: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]

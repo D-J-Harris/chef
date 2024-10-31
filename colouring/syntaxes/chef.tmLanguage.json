@@ -1,0 +1,98 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "chef",
+  "patterns": [
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#support"
+    },
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#storage"
+    },
+    {
+      "include": "#entity"
+    },
+    {
+      "include": "#variable"
+    }
+  ],
+  "repository": {
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.chef",
+          "match": "\\b(check|while|serve|finish)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.chef",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.chef",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "support": {
+      "patterns": [
+        {
+          "name": "support.function.chef",
+          "match": "\\b(clock)\\b"
+        }
+      ]
+    },
+    "comment": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.chef",
+          "begin": "//",
+          "end": "\\n"
+        }
+      ]
+    },
+    "storage": {
+      "patterns": [
+        {
+          "name": "storage.type.chef",
+          "match": "[+*]"
+        }
+      ]
+    },
+    "entity": {
+      "patterns": [
+        {
+          "name": "entity.name.function.chef",
+          "match": "\\b(with|now|whisk|bake|cook)\\b"
+        },
+        {
+          "name": "entity.name.tag.chef",
+          "match": "\\b(Recipe|Ingredients|Utensils|Steps)\\b"
+        },
+        {
+          "name": "entity.name.tag.chef",
+          "match": "\\b(Recipe|Ingredients|Utensils|Steps)\\b"
+        }
+      ]
+    },
+    "variable": {
+      "patterns": [
+        {
+          "name": "variable.language",
+          "match": "\\b(egg|flour|sugar|milk|chocolate|banana)\\b"
+        }
+      ]
+    }
+  },
+  "scopeName": "source.chef"
+}

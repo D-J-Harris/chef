@@ -19,14 +19,11 @@ mod scanner;
 mod value;
 mod vm;
 
-fn interpret<'src>(source: &'src str) -> InterpretResult<()> {
+fn interpret(source: &str) -> InterpretResult<()> {
     let compiler = Compiler::new(source);
     let code = compiler.compile().ok_or(ChefError::Compile)?;
     let mut state = State::new(code);
-    state.push_frame(CallFrame {
-        name: "".into(),
-        continuation_ip: 0,
-    })?;
+    state.push_frame(CallFrame::default())?;
     let result = state.run();
     if let Err(err) = &result {
         eprintln!("{err}");
@@ -37,7 +34,6 @@ fn interpret<'src>(source: &'src str) -> InterpretResult<()> {
 
 fn main() {
     let args = env::args().collect::<Vec<String>>();
-
     match args.len() {
         1 => repl(),
         2 => run_file(&args[1]),
@@ -61,16 +57,20 @@ fn repl() {
 }
 
 fn run_file(path: &str) {
+    if !path.ends_with(".chef") && !path.ends_with(".recipe") {
+        eprintln!("Source code file extension should be `.chef` or `.recipe`.");
+        exit(74);
+    }
     let Ok(mut source) = std::fs::read_to_string(path) else {
-        eprintln!("Could not read File");
+        eprintln!("Could not read file.");
         exit(74);
     };
     source.push('\0');
 
     // unix sysexits.h exit codes
     match interpret(&source) {
-        Ok(_) => exit(0),
         Err(ChefError::Compile) => exit(65),
+        Ok(_) => exit(0),
         Err(_) => exit(70),
     }
 }

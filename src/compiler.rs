@@ -1,5 +1,3 @@
-use std::u8;
-
 use crate::code::Opcode;
 use crate::common::{FUNCTION_ARITY_MAX_COUNT, LOCALS_MAX_COUNT};
 use crate::native_functions::declare_native_functions;
@@ -38,7 +36,7 @@ impl<'src> Compiler<'src> {
             code: Code::new(),
             context,
         };
-        for (name, function) in declare_native_functions().into_iter() {
+        for (name, function) in declare_native_functions() {
             compiler.emit_constant(Value::NativeFunction(function));
             compiler.add_local(name);
         }
@@ -141,18 +139,15 @@ impl<'src> Compiler<'src> {
     }
 
     fn fun_declaration(&mut self) {
-        let fun_jump = self.emit_jump(Opcode::Jump as u8);
         self.consume(TokenKind::FunIdent, "Expect utensil function identifier.");
         self.define_variable();
         self.function();
-        self.patch_jump(fun_jump, 2);
     }
 
     fn function(&mut self) {
         self.begin_compiler();
         self.begin_scope();
         let function_name = self.previous.lexeme;
-        let function_start = self.code.bytes.len();
         let mut function_arity = 0;
 
         if self.check(TokenKind::LeftParen) {
@@ -195,10 +190,11 @@ impl<'src> Compiler<'src> {
                 }
             }
         }
+        let fun_jump = self.emit_jump(Opcode::Jump as u8);
         let function = Function {
             name: function_name.into(),
             arity: function_arity,
-            index: function_start,
+            ip_start: self.code.bytes.len(),
         };
         let Some(constant_index) = self.code.add_constant(Value::Function(function)) else {
             self.error("Too many constants in one chunk.");
@@ -208,6 +204,7 @@ impl<'src> Compiler<'src> {
         self.end_compiler();
         self.emit(Opcode::Constant as u8);
         self.emit(constant_index);
+        self.patch_jump(fun_jump, 2);
     }
 
     fn var_declaration(&mut self) {
@@ -222,17 +219,17 @@ impl<'src> Compiler<'src> {
     }
 
     fn define_variable(&mut self) {
-        let variable_name = self.previous.lexeme;
+        let name = self.previous.lexeme;
         let mut has_match_name_error = false;
         for local_name in self.context.locals.iter().rev() {
-            if *local_name == variable_name {
+            if *local_name == name {
                 has_match_name_error = true
             }
         }
         if has_match_name_error {
             self.error("Already a variable with this name in this scope.");
         }
-        self.add_local(variable_name);
+        self.add_local(name);
     }
 
     pub fn add_local(&mut self, name: &'src str) {
@@ -567,10 +564,10 @@ impl<'src> Compiler<'src> {
 
     pub fn named_variable(&mut self, token_name: &str, can_assign: bool) {
         let (get_operation_bytes, set_operation_bytes) =
-            match self.context.resolve_local(token_name) {
-                Ok(constant_index) => (
-                    (Opcode::GetLocal as u8, constant_index),
-                    (Opcode::SetLocal as u8, constant_index),
+            match self.context.resolve_local(token_name, 0) {
+                Ok((constant_index, depth)) => (
+                    (Opcode::GetLocal as u8, constant_index, depth),
+                    (Opcode::SetLocal as u8, constant_index, depth),
                 ),
                 Err(err) => {
                     self.error(err);
@@ -582,9 +579,11 @@ impl<'src> Compiler<'src> {
             self.expression();
             self.emit(set_operation_bytes.0);
             self.emit(set_operation_bytes.1);
+            self.emit(set_operation_bytes.2);
         } else {
             self.emit(get_operation_bytes.0);
             self.emit(get_operation_bytes.1);
+            self.emit(get_operation_bytes.2);
         }
     }
 
@@ -679,15 +678,15 @@ impl<'src> CompilerContext<'src> {
         }
     }
 
-    fn resolve_local(&mut self, token_name: &str) -> Result<u8, &'src str> {
+    fn resolve_local(&mut self, token_name: &str, depth: u8) -> Result<(u8, u8), &'static str> {
         for (index, local_name) in self.locals.iter().enumerate().rev() {
             if token_name == *local_name {
-                return Ok(index as u8);
+                return Ok((index as u8, depth));
             }
         }
         if let Some(parent_compiler) = self.enclosing.as_deref_mut() {
-            return parent_compiler.resolve_local(token_name);
+            return parent_compiler.resolve_local(token_name, depth + 1);
         }
-        Err("Identifier not defined.")
+        Err("Name not defined in local scope.")
     }
 }

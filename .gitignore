@@ -40,3 +40,4 @@ rust-project.json
 
 .DS_STORE
 example.chef
+example.recipe
