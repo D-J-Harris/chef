@@ -10,20 +10,14 @@ pub enum ChefError {
     OutOfBounds,
     #[error("Stack overflow.")]
     StackOverflow,
-    #[error("Can only call functions and classes.")]
+    #[error("Can only call functions.")]
     InvalidCallee,
     #[error("Expected {0} arguments but got {1}.")]
     FunctionArity(u8, u8),
-    #[error("Undefined variable '{0}'.")]
-    UndefinedVariable(String),
     #[error("Operand must be a number.")]
     ValueNegationOperation,
     #[error("Operands must be numbers.")]
     ValueNumberOnlyOperation,
     #[error("Operands must be two numbers or two strings.")]
     ValueAddOperation,
-    #[error("No string name initialized.")]
-    ConstantStringNotFound,
-    #[error("No function name initialized.")]
-    ConstantFunctionNotFound,
 }

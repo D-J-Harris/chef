@@ -60,6 +60,11 @@ impl Precedence {
                 infix: ParseFunctionKind::Call,
                 precedence: Precedence::Call,
             },
+            TokenKind::BareFunctionInvocation => ParseRule {
+                prefix: ParseFunctionKind::None,
+                infix: ParseFunctionKind::Call,
+                precedence: Precedence::Call,
+            },
             TokenKind::LeftBrace => ParseRule {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,

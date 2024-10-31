@@ -1,24 +1,16 @@
-use std::{
-    collections::HashMap,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::value::Value;
 
 pub type NativeFunction = fn(arg_count: u8, ip: usize) -> Value;
 
-pub const NATIVE_FUNCTION_COUNT: usize = 1;
+const NATIVE_FUNCTION_COUNT: usize = 1;
 
-pub fn declare_native_functions(
-    globals: &mut HashMap<String, Value>,
-) -> [NativeFunction; NATIVE_FUNCTION_COUNT] {
-    let name = "clock";
+pub fn declare_native_functions() -> [(&'static str, NativeFunction); NATIVE_FUNCTION_COUNT] {
     let native_function_clock = current_time_s;
-    let value = Value::NativeFunction(native_function_clock);
-    globals.insert(name.into(), value);
-
-    [native_function_clock]
+    [("clock", native_function_clock)]
 }
+
 fn current_time() -> Duration {
     let start = SystemTime::now();
     start

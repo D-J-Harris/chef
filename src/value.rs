@@ -1,33 +1,24 @@
 use crate::common::print_function;
 use crate::error::{ChefError, InterpretResult};
-use crate::function::Function;
 use crate::native_functions::NativeFunction;
 use std::fmt::{Debug, Display};
 use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
-use std::rc::Rc;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct Function {
+    pub name: String,
+    pub arity: u8,
+    pub index: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Nil,
     Number(f64),
     Boolean(bool),
     String(String),
-    Function(Rc<Function>),
+    Function(Function),
     NativeFunction(NativeFunction),
-}
-
-impl PartialEq for Value {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Nil, Self::Nil) => true,
-            (Self::Boolean(a), Self::Boolean(b)) => a == b,
-            (Self::Number(a), Self::Number(b)) => a == b,
-            (Self::String(a), Self::String(b)) => a == b,
-            (Self::NativeFunction(a), Self::NativeFunction(b)) => a == b,
-            (Self::Function(a), Self::Function(b)) => Rc::ptr_eq(&a, &b),
-            _ => false,
-        }
-    }
 }
 
 impl Display for Value {
@@ -37,8 +28,8 @@ impl Display for Value {
             Value::Number(number) => write!(f, "{number}"),
             Value::Boolean(boolean) => write!(f, "{boolean}"),
             Value::String(string) => write!(f, "{string}"),
+            Value::Function(function) => write!(f, "{}", print_function(&function.name)),
             Value::NativeFunction(_) => write!(f, "<native fn>"),
-            Value::Function(rc) => write!(f, "{}", print_function(&rc.name)),
         }
     }
 }

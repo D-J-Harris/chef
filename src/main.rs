@@ -6,15 +6,13 @@ use std::process::exit;
 use compiler::Compiler;
 use error::ChefError;
 use error::InterpretResult;
-use native_functions::declare_native_functions;
-use value::Value;
+use vm::CallFrame;
 use vm::State;
 
-mod chunk;
+mod code;
 mod common;
 mod compiler;
 mod error;
-mod function;
 mod native_functions;
 mod rules;
 mod scanner;
@@ -22,12 +20,13 @@ mod value;
 mod vm;
 
 fn interpret<'src>(source: &'src str) -> InterpretResult<()> {
-    let mut state = State::new();
-    declare_native_functions(&mut state.globals);
     let compiler = Compiler::new(source);
-    let function = compiler.compile().ok_or(ChefError::Compile)?;
-    state.push(Value::Function(function))?;
-    state.call(0)?;
+    let code = compiler.compile().ok_or(ChefError::Compile)?;
+    let mut state = State::new(code);
+    state.push_frame(CallFrame {
+        name: "".into(),
+        continuation_ip: 0,
+    })?;
     let result = state.run();
     if let Err(err) = &result {
         eprintln!("{err}");

@@ -19,9 +19,6 @@ pub enum Opcode {
     Less,
     Print,
     Pop,
-    DefineGlobal,
-    GetGlobal,
-    SetGlobal,
     GetLocal,
     SetLocal,
     Constant,
@@ -29,12 +26,11 @@ pub enum Opcode {
     Jump,
     Loop,
     Call,
-    Function,
 }
 
 #[derive(Debug)]
 pub struct Code {
-    pub code: Vec<u8>,
+    pub bytes: Vec<u8>,
     pub lines: Vec<usize>,
     pub constants: [Value; CONSTANTS_MAX_COUNT],
     pub constants_count: usize,
@@ -44,7 +40,7 @@ const ARRAY_REPEAT_VALUE: Value = Value::Nil;
 impl Code {
     pub fn new() -> Self {
         Self {
-            code: Vec::new(),
+            bytes: Vec::new(),
             lines: Vec::new(),
             constants: [ARRAY_REPEAT_VALUE; CONSTANTS_MAX_COUNT],
             constants_count: 0,
@@ -52,7 +48,7 @@ impl Code {
     }
 
     pub fn write(&mut self, byte: u8, line: usize) {
-        self.code.push(byte);
+        self.bytes.push(byte);
         self.lines.push(line);
     }
 
@@ -68,17 +64,17 @@ impl Code {
 
 #[allow(unused)]
 impl Code {
-    pub fn disassemble(&self, name: &str) {
-        println!("====== Chunk {name} ======");
+    pub fn disassemble(&self) {
+        println!("====== Code ======");
         let mut offset = 0;
-        while offset < self.code.len() {
+        while offset < self.bytes.len() {
             offset = self.disassemble_instruction(offset)
         }
         println!();
     }
 
     pub fn disassemble_instruction(&self, offset: usize) -> usize {
-        let byte = self.code[offset];
+        let byte = self.bytes[offset];
         let line = self.lines[offset];
         if offset > 0 && line == self.lines[offset - 1] {
             print!("{offset:0>4} {:>9}  ", "|");
@@ -102,17 +98,13 @@ impl Code {
             Opcode::Less => self.disassemble_simple_instruction(operation, offset),
             Opcode::Print => self.disassemble_simple_instruction(operation, offset),
             Opcode::Pop => self.disassemble_simple_instruction(operation, offset),
-            Opcode::Function => self.disassemble_constant_instruction(operation, offset),
-            Opcode::DefineGlobal => self.disassemble_constant_instruction(operation, offset),
-            Opcode::GetGlobal => self.disassemble_constant_instruction(operation, offset),
-            Opcode::SetGlobal => self.disassemble_constant_instruction(operation, offset),
             Opcode::GetLocal => self.disassemble_byte_instruction(operation, offset),
             Opcode::SetLocal => self.disassemble_byte_instruction(operation, offset),
             Opcode::Constant => self.disassemble_constant_instruction(operation, offset),
             Opcode::JumpIfFalse => self.disassemble_jump_instruction(operation, offset),
             Opcode::Jump => self.disassemble_jump_instruction(operation, offset),
             Opcode::Loop => self.disassemble_jump_instruction(operation, offset),
-            Opcode::Call => self.disassemble_byte_instruction(operation, offset),
+            Opcode::Call => self.disassemble_call_instruction(operation, offset),
         }
     }
 
@@ -122,14 +114,20 @@ impl Code {
     }
 
     fn disassemble_constant_instruction(&self, operation: Opcode, offset: usize) -> usize {
-        let constant_index = self.code[offset + 1] as usize;
+        let constant_index = self.bytes[offset + 1] as usize;
         let constant = &self.constants[constant_index];
         println!("{: <14} [constant: {constant}]", format!("{operation:?}"));
         offset + 2
     }
 
+    fn disassemble_call_instruction(&self, operation: Opcode, offset: usize) -> usize {
+        let arguments = self.bytes[offset + 1] as usize;
+        println!("{: <14} [args: {arguments}]", format!("{operation:?}"));
+        offset + 2
+    }
+
     fn disassemble_byte_instruction(&self, operation: Opcode, offset: usize) -> usize {
-        let stack_index = self.code[offset + 1];
+        let stack_index = self.bytes[offset + 1];
         println!(
             "{: <14} [stack_index: {stack_index}]",
             format!("{operation:?}")
@@ -138,16 +136,16 @@ impl Code {
     }
 
     fn disassemble_jump_instruction(&self, operation: Opcode, offset: usize) -> usize {
-        let byte_1 = self.code[offset + 1];
-        let byte_2 = self.code[offset + 2];
+        let byte_1 = self.bytes[offset + 1];
+        let byte_2 = self.bytes[offset + 2];
         let jump_offset = u16::from_le_bytes([byte_1, byte_2]);
         println!("{: <14} [offset: {jump_offset}]", format!("{operation:?}"));
         offset + 3
     }
 
     fn disassemble_invoke_instruction(&self, operation: Opcode, offset: usize) -> usize {
-        let constant_index = self.code[offset + 1] as usize;
-        let argument_count = self.code[offset + 2];
+        let constant_index = self.bytes[offset + 1] as usize;
+        let argument_count = self.bytes[offset + 2];
         let constant = &self.constants[constant_index];
         println!(
             "{: <14} [args: {argument_count}, constant: {constant}]",

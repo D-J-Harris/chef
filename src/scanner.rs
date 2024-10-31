@@ -13,6 +13,7 @@ impl<'src> Scanner<'src> {
         identifiers.insert("compliments", TokenKind::And);
         identifiers.insert("and", TokenKind::ParameterAnd);
         identifiers.insert("plus", TokenKind::Plus);
+        identifiers.insert("now", TokenKind::BareFunctionInvocation);
         identifiers.insert("subtract", TokenKind::Minus);
         identifiers.insert("check", TokenKind::If);
         identifiers.insert("with", TokenKind::LeftParen);
@@ -261,6 +262,7 @@ pub enum TokenKind {
     Ingredients,
     Utensils,
     Steps,
+    BareFunctionInvocation,
     // Other.
     Error,
     Eof,

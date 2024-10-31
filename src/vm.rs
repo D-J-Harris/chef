@@ -1,58 +1,37 @@
-use std::collections::HashMap;
 use std::mem::transmute;
-use std::rc::Rc;
 
-use crate::chunk::Opcode;
+use crate::code::{Code, Opcode};
 use crate::common::{CALL_FRAMES_MAX_COUNT, STACK_VALUES_MAX_COUNT};
 use crate::error::{ChefError, InterpretResult};
-use crate::function::Function;
 use crate::value::Value;
 
 #[derive(Debug, Clone)]
 pub struct CallFrame {
-    function: Rc<Function>,
-    stack_index: usize,
-    frame_ip: usize,
-}
-
-impl CallFrame {
-    fn runtime_error_print(&self) {
-        let function = &self.function;
-        let line = function.chunk.lines[self.frame_ip - 1];
-        match function.name.is_empty() {
-            true => eprintln!("[line {line}] in script"),
-            false => eprintln!("[line {line}] in {}", function.name),
-        }
-    }
+    pub name: String,
+    pub continuation_ip: usize,
 }
 
 pub struct State {
+    ip: usize,
+    pub code: Code,
     frames: [Option<CallFrame>; CALL_FRAMES_MAX_COUNT],
     frame_count: usize,
-    stack: [Option<Value>; STACK_VALUES_MAX_COUNT],
+    pub stack: [Option<Value>; STACK_VALUES_MAX_COUNT],
     stack_top: usize,
-    pub globals: HashMap<String, Value>,
 }
 
 const FRAME_ARRAY_REPEAT_VALUE: Option<CallFrame> = None;
 const STACK_ARRAY_REPEAT_VALUE: Option<Value> = None;
 impl State {
-    pub fn new() -> Self {
+    pub fn new(code: Code) -> Self {
         Self {
+            ip: 0,
+            code,
             frames: [FRAME_ARRAY_REPEAT_VALUE; CALL_FRAMES_MAX_COUNT],
             frame_count: 0,
             stack: [STACK_ARRAY_REPEAT_VALUE; STACK_VALUES_MAX_COUNT],
             stack_top: 0,
-            globals: HashMap::new(),
         }
-    }
-
-    fn current_frame(&self) -> &CallFrame {
-        self.frames[self.frame_count - 1].as_ref().unwrap()
-    }
-
-    fn current_frame_mut(&mut self) -> &mut CallFrame {
-        self.frames[self.frame_count - 1].as_mut().unwrap()
     }
 
     fn reset(&mut self) {
@@ -63,7 +42,11 @@ impl State {
     pub fn stack_error(&mut self) {
         for frame_count in (0..self.frame_count).rev() {
             let frame = self.frames[frame_count].as_ref().unwrap();
-            frame.runtime_error_print()
+            let line = self.code.lines[self.ip - 1];
+            match frame.name.is_empty() {
+                true => eprintln!("[line {line}] in script"),
+                false => eprintln!("[line {line}] in {}", frame.name),
+            }
         }
         self.reset();
     }
@@ -102,12 +85,12 @@ impl State {
 
     pub fn run(&mut self) -> InterpretResult<()> {
         loop {
+            if self.stack_top > 10 {
+                return Err(ChefError::OutOfBounds);
+            }
             let byte = self.read_byte();
             #[cfg(feature = "debug_trace")]
-            self.current_frame()
-                .function
-                .chunk
-                .disassemble_instruction(self.current_frame().frame_ip - 1);
+            self.code.disassemble_instruction(self.ip - 1);
             let opcode: Opcode = unsafe { transmute(byte) };
             match opcode {
                 Opcode::Return => {
@@ -116,7 +99,7 @@ impl State {
                     if self.frame_count == 0 {
                         return Ok(());
                     }
-                    self.stack_top = frame.stack_index;
+                    self.ip = frame.continuation_ip;
                     self.push(result)?;
                 }
                 Opcode::Constant => self.op_constant()?,
@@ -134,16 +117,12 @@ impl State {
                 Opcode::Less => self.op_less()?,
                 Opcode::Print => self.op_print(),
                 Opcode::Pop => drop(self.pop()),
-                Opcode::DefineGlobal => self.op_define_global()?,
-                Opcode::GetGlobal => self.op_get_global()?,
-                Opcode::SetGlobal => self.op_set_global()?,
                 Opcode::GetLocal => self.op_get_local()?,
                 Opcode::SetLocal => self.op_set_local(),
                 Opcode::JumpIfFalse => self.op_jump_if_false(),
                 Opcode::Jump => self.op_jump(),
                 Opcode::Loop => self.op_loop(),
                 Opcode::Call => self.op_call()?,
-                Opcode::Function => self.op_function()?,
             };
         }
     }
@@ -242,78 +221,39 @@ impl State {
     }
 
     fn op_print(&mut self) {
-        println!("print stack before pop {:?}", &self.stack[1]);
         let constant = self.pop();
         println!("{constant}");
     }
 
     fn op_loop(&mut self) {
         let offset = self.read_u16();
-        self.current_frame_mut().frame_ip -= offset as usize;
+        self.ip -= offset as usize;
     }
 
     fn op_jump(&mut self) {
         let offset = self.read_u16();
-        self.current_frame_mut().frame_ip += offset as usize
+        self.ip += offset as usize
     }
 
     fn op_jump_if_false(&mut self) {
         let offset = self.read_u16();
         let value = self.peek(0);
         if value.falsey() {
-            self.current_frame_mut().frame_ip += offset as usize;
+            self.ip += offset as usize;
         }
-    }
-
-    fn op_define_global(&mut self) -> InterpretResult<()> {
-        let constant_index = self.read_byte();
-        let Value::String(name) = self.read_constant(constant_index)? else {
-            return Err(ChefError::ConstantStringNotFound);
-        };
-        let constant = self.pop();
-        self.globals.insert(name, constant);
-        Ok(())
-    }
-
-    fn op_get_global(&mut self) -> InterpretResult<()> {
-        let constant_index = self.read_byte();
-        let Value::String(name) = self.read_constant(constant_index)? else {
-            return Err(ChefError::ConstantStringNotFound);
-        };
-        let constant = self
-            .globals
-            .get(&name)
-            .ok_or_else(|| ChefError::UndefinedVariable(name))?;
-        self.push(constant.clone())?;
-        Ok(())
-    }
-
-    fn op_set_global(&mut self) -> InterpretResult<()> {
-        let constant_index = self.read_byte();
-        let Value::String(name) = self.read_constant(constant_index)? else {
-            return Err(ChefError::ConstantStringNotFound);
-        };
-        let constant = self.peek(0);
-        self.globals
-            .insert(name.clone(), constant.clone())
-            .ok_or_else(|| ChefError::UndefinedVariable(name))?;
-        Ok(())
     }
 
     fn op_get_local(&mut self) -> InterpretResult<()> {
         let frame_index = self.read_byte();
-        let stack_index = self.current_frame().stack_index + frame_index as usize;
-        let value = self.stack[stack_index].as_ref().unwrap();
+        let value = self.stack[frame_index as usize].as_ref().unwrap();
         self.push(value.clone())?;
         Ok(())
     }
 
     fn op_set_local(&mut self) {
         let frame_index = self.read_byte();
-        let stack_index = self.current_frame().stack_index + frame_index as usize;
         let replacement_value = self.peek(0);
-        self.stack[stack_index] = Some(replacement_value.clone());
-        println!("stack after set_local {:?}", &self.stack[1]);
+        self.stack[frame_index as usize] = Some(replacement_value.clone());
     }
 
     fn op_call(&mut self) -> InterpretResult<()> {
@@ -321,16 +261,8 @@ impl State {
         self.call(argument_count)
     }
 
-    fn op_function(&mut self) -> InterpretResult<()> {
-        let constant_index = self.read_byte();
-        let value @ Value::Function(_) = self.read_constant(constant_index)? else {
-            return Err(ChefError::ConstantFunctionNotFound);
-        };
-        self.push(value)
-    }
-
     pub fn call(&mut self, argument_count: u8) -> InterpretResult<()> {
-        let callee = self.peek(argument_count as usize);
+        let callee = self.peek(argument_count as usize).clone();
         match callee {
             Value::NativeFunction(function) => {
                 let result = function(argument_count, self.stack_top - argument_count as usize);
@@ -343,10 +275,10 @@ impl State {
                     return Err(ChefError::FunctionArity(function.arity, argument_count));
                 }
                 self.push_frame(CallFrame {
-                    function: Rc::clone(&function),
-                    stack_index: self.stack_top - argument_count as usize - 1,
-                    frame_ip: 0,
+                    name: function.name.clone(),
+                    continuation_ip: self.ip,
                 })?;
+                self.ip = function.index;
                 Ok(())
             }
             _ => Err(ChefError::InvalidCallee),
@@ -355,9 +287,7 @@ impl State {
 
     fn read_constant<'a>(&self, index: u8) -> InterpretResult<Value> {
         let value = self
-            .current_frame()
-            .function
-            .chunk
+            .code
             .constants
             .get(index as usize)
             .ok_or(ChefError::OutOfBounds)?;
@@ -365,17 +295,15 @@ impl State {
     }
 
     fn read_u16(&mut self) -> usize {
-        let current_frame = self.current_frame_mut();
-        current_frame.frame_ip += 2;
-        let byte_1 = current_frame.function.chunk.code[current_frame.frame_ip - 2];
-        let byte_2 = current_frame.function.chunk.code[current_frame.frame_ip - 1];
+        self.ip += 2;
+        let byte_1 = self.code.bytes[self.ip - 2];
+        let byte_2 = self.code.bytes[self.ip - 1];
         u16::from_le_bytes([byte_1, byte_2]) as usize
     }
 
     fn read_byte(&mut self) -> u8 {
-        let current_frame = self.current_frame_mut();
-        let byte = current_frame.function.chunk.code[current_frame.frame_ip];
-        current_frame.frame_ip += 1;
+        let byte = self.code.bytes[self.ip];
+        self.ip += 1;
         byte
     }
 }

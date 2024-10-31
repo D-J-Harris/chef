@@ -1,13 +1,12 @@
-use std::rc::Rc;
 use std::u8;
 
-use crate::chunk::Opcode;
+use crate::code::Opcode;
 use crate::common::{FUNCTION_ARITY_MAX_COUNT, LOCALS_MAX_COUNT};
-use crate::function::{Function, FunctionKind};
+use crate::native_functions::declare_native_functions;
 use crate::rules::{ParseFunctionKind, Precedence};
 use crate::scanner::{Token, TokenKind};
-use crate::value::Value;
-use crate::{chunk::Code, scanner::Scanner};
+use crate::value::{Function, Value};
+use crate::{code::Code, scanner::Scanner};
 
 #[derive(PartialEq)]
 enum ParamOrder {
@@ -23,44 +22,46 @@ pub struct Compiler<'src> {
     context: CompilerContext<'src>,
     had_error: bool,
     panic_mode: bool,
+    pub code: Code,
 }
 
 impl<'src> Compiler<'src> {
     pub fn new(source: &'src str) -> Self {
         let initial_token = Token::new("", 1, TokenKind::Error);
-        let context = CompilerContext::new("", FunctionKind::Script);
-        Self {
+        let context = CompilerContext::new();
+        let mut compiler = Self {
             scanner: Scanner::new(source),
             previous: initial_token,
             current: initial_token,
             had_error: false,
             panic_mode: false,
+            code: Code::new(),
             context,
+        };
+        for (name, function) in declare_native_functions().into_iter() {
+            compiler.emit_constant(Value::NativeFunction(function));
+            compiler.add_local(name);
         }
+        compiler
     }
 
-    fn current_chunk(&self) -> &Code {
-        &self.context.function.chunk
-    }
-
-    fn init_compiler(&mut self, function_kind: FunctionKind) {
-        let name = self.previous.lexeme;
-        let compiler_context = CompilerContext::new(name, function_kind);
+    fn begin_compiler(&mut self) {
+        let compiler_context = CompilerContext::new();
         let enclosing_compiler_context = std::mem::replace(&mut self.context, compiler_context);
         self.context.enclosing = Some(Box::new(enclosing_compiler_context));
     }
 
-    fn end_compiler(&mut self) -> Option<Function> {
+    fn end_compiler(&mut self) {
         self.emit_return();
-        #[cfg(feature = "debug_code")]
-        self.context.debug();
-        self.context.enclosing.take().map(|parent| {
-            let context = std::mem::replace(&mut self.context, *parent);
-            context.function
-        })
+        drop(
+            self.context
+                .enclosing
+                .take()
+                .map(|parent| std::mem::replace(&mut self.context, *parent)),
+        )
     }
 
-    pub fn compile(mut self) -> Option<Rc<Function>> {
+    pub fn compile(mut self) -> Option<Code> {
         self.advance();
         self.parse_title();
         self.parse_ingredients();
@@ -74,14 +75,12 @@ impl<'src> Compiler<'src> {
                 break;
             }
         }
-        let had_error = self.had_error;
-        let function = match self.end_compiler() {
-            Some(f) => f,
-            None => self.context.function,
-        };
-        match had_error {
+        self.emit_return();
+        #[cfg(feature = "debug_code")]
+        self.debug();
+        match self.had_error {
             true => None,
-            false => Some(Rc::new(function)),
+            false => Some(self.code),
         }
     }
 
@@ -142,161 +141,116 @@ impl<'src> Compiler<'src> {
     }
 
     fn fun_declaration(&mut self) {
+        let fun_jump = self.emit_jump(Opcode::Jump as u8);
         self.consume(TokenKind::FunIdent, "Expect utensil function identifier.");
-        let Some(_constant_index) = self.parse_variable() else {
-            return;
-        };
-        self.function(FunctionKind::Function);
-        self.mark_initialized();
+        self.define_variable();
+        self.function();
+        self.patch_jump(fun_jump, 2);
     }
 
-    fn function(&mut self, function_kind: FunctionKind) {
-        self.init_compiler(function_kind);
+    fn function(&mut self) {
+        self.begin_compiler();
         self.begin_scope();
+        let function_name = self.previous.lexeme;
+        let function_start = self.code.bytes.len();
+        let mut function_arity = 0;
 
-        self.consume(TokenKind::LeftParen, "Expect 'with' after function name.");
-
-        let mut order = ParamOrder::First;
-        loop {
-            let current_arity = &mut self.context.function.arity;
-            if *current_arity == FUNCTION_ARITY_MAX_COUNT {
-                self.error_at_current("Can't have more than 255 parameters.");
-                return;
-            }
-            *current_arity += 1;
-            self.consume(TokenKind::Ident, "Expect parameter name.");
-            let Some(_constant_index) = self.parse_variable() else {
-                return;
-            };
-            self.mark_initialized();
-
-            match self.current.kind {
-                TokenKind::Comma => {
-                    order = ParamOrder::Middle;
-                    self.advance();
-                    continue;
+        if self.check(TokenKind::LeftParen) {
+            self.advance();
+            let mut order = ParamOrder::First;
+            loop {
+                if function_arity == FUNCTION_ARITY_MAX_COUNT {
+                    self.error_at_current("Can't have more than 255 parameters.");
+                    return;
                 }
-                TokenKind::ParameterAnd => {
-                    if order == ParamOrder::Last {
-                        self.error(
+                function_arity += 1;
+                self.consume(TokenKind::Ident, "Expect parameter name.");
+                self.define_variable();
+                match self.current.kind {
+                    TokenKind::Comma => {
+                        order = ParamOrder::Middle;
+                        self.advance();
+                        continue;
+                    }
+                    TokenKind::ParameterAnd => {
+                        if order == ParamOrder::Last {
+                            self.error(
                             "Can not use the 'and' list keyword multiple times, use ',' instead.",
                         );
+                        }
+                        order = ParamOrder::Last;
+                        self.advance();
+                        continue;
                     }
-                    order = ParamOrder::Last;
-                    self.advance();
-                    continue;
-                }
-                TokenKind::Hyphen => {
-                    if order == ParamOrder::Middle {
-                        self.error("Function parameters should be a list where the final element is preceded by 'and'");
+                    TokenKind::Hyphen => {
+                        if order == ParamOrder::Middle {
+                            self.error("Function parameters should be a list where the final element is preceded by 'and'");
+                        }
+                        break;
                     }
-                    break;
-                }
-                _ => {
-                    self.error("Expect ',' or 'and' to continue parameter list, or '-' for the first step.");
-                    break;
+                    _ => {
+                        self.error("Expect ',' or 'and' to continue parameter list, or '-' for the first step.");
+                        break;
+                    }
                 }
             }
         }
-        self.block();
-
-        let Some(function) = self.end_compiler() else {
-            self.error("Cannot end compiler for the top-level script.");
-            return;
+        let function = Function {
+            name: function_name.into(),
+            arity: function_arity,
+            index: function_start,
         };
-        let Some(constant_index) = self
-            .context
-            .function
-            .chunk
-            .add_constant(Value::Function(Rc::new(function)))
-        else {
+        let Some(constant_index) = self.code.add_constant(Value::Function(function)) else {
             self.error("Too many constants in one chunk.");
             return;
         };
-        self.emit(Opcode::Function as u8);
+        self.block();
+        self.end_compiler();
+        self.emit(Opcode::Constant as u8);
         self.emit(constant_index);
     }
 
     fn var_declaration(&mut self) {
         self.consume(TokenKind::VarIdent, "Expect ingredient identifier.");
-        let Some(_constant_index) = self.parse_variable() else {
-            return;
-        };
+        self.define_variable();
         if self.r#match(TokenKind::Equal) {
             self.expression();
         } else {
             self.emit(Opcode::Nil as u8);
         }
-        self.consume(TokenKind::Semicolon, "Expect ';' after value.");
-        self.mark_initialized();
+        self.consume_end();
     }
 
-    fn parse_variable(&mut self) -> Option<u8> {
-        self.declare_variable();
-        if self.context.scope_depth > 0 {
-            // Return dummy variable since locals aren't looked up by name at runtime
-            return Some(0);
-        }
-        self.constant_identifier(self.previous.lexeme)
-    }
-
-    // Declaration only happens in top-level scope, so no concern here over enclosing compiler locals
-    fn declare_variable(&mut self) {
+    fn define_variable(&mut self) {
         let variable_name = self.previous.lexeme;
-
         let mut has_match_name_error = false;
-        for local in self.context.locals.iter().rev() {
-            if let Some(depth) = local.depth {
-                if depth < self.context.scope_depth {
-                    break;
-                }
-            }
-            if local.name == variable_name {
+        for local_name in self.context.locals.iter().rev() {
+            if *local_name == variable_name {
                 has_match_name_error = true
             }
         }
         if has_match_name_error {
-            self.error("Identifier already defined in this scope.");
+            self.error("Already a variable with this name in this scope.");
         }
-        self.add_local(variable_name)
+        self.add_local(variable_name);
     }
 
-    fn add_local(&mut self, name: &'src str) {
+    pub fn add_local(&mut self, name: &'src str) {
         let locals_count = &mut self.context.locals_count;
-        if *locals_count == LOCALS_MAX_COUNT {
-            self.error("Too many local variables in function.");
-            return;
-        }
-        // "Declare" depth with None, it will later be initialized when variable defined
-        self.context.locals[*locals_count].name = name;
+        self.context.locals[*locals_count] = name;
         *locals_count += 1;
     }
 
-    fn constant_identifier(&mut self, token_name: &str) -> Option<u8> {
-        self.context
-            .function
-            .chunk
-            .add_constant(Value::String(token_name.into()))
-    }
-
-    fn mark_initialized(&mut self) {
-        self.context.locals[self.context.locals_count - 1].depth = Some(self.context.scope_depth);
-    }
-
     fn statement(&mut self) -> bool {
-        if !self.r#match(TokenKind::Hyphen) {
-            if self.check(TokenKind::Steps) {
-                self.error_at_current("Instructions should end with a 'finish' step.");
-                return true;
-            } else {
-                self.error_at_current(
-                    "Instructions should be preceded by a bullet point character '-'.",
-                );
-                self.advance();
-                return true;
-            }
+        if !self.check(TokenKind::Hyphen) {
+            self.error_at_current(
+                "Instructions should be preceded by a bullet point character '-'. Maybe a previous set of instructions was not terminated with a 'finish' step?",
+            );
+            return true;
         }
+        self.advance();
         if self.r#match(TokenKind::RightBrace) {
+            self.consume_end();
             return true;
         } else if self.r#match(TokenKind::Print) {
             self.print_statement();
@@ -306,10 +260,6 @@ impl<'src> Compiler<'src> {
             self.return_statement();
         } else if self.r#match(TokenKind::While) {
             self.while_statement();
-        } else if self.r#match(TokenKind::LeftBrace) {
-            self.begin_scope();
-            self.block();
-            self.end_scope();
         } else {
             self.expression_statement();
         }
@@ -318,21 +268,6 @@ impl<'src> Compiler<'src> {
 
     fn begin_scope(&mut self) {
         self.context.scope_depth += 1;
-    }
-
-    fn end_scope(&mut self) {
-        self.context.scope_depth -= 1;
-        for index in (0..self.context.locals_count).rev() {
-            let local = &self.context.locals[index];
-            if let Some(depth) = local.depth {
-                if depth <= self.context.scope_depth {
-                    break;
-                }
-            }
-            self.emit(Opcode::Pop as u8);
-            self.context.locals_count -= 1;
-            self.context.locals[self.context.locals_count].reset();
-        }
     }
 
     fn block(&mut self) {
@@ -345,7 +280,7 @@ impl<'src> Compiler<'src> {
 
     fn print_statement(&mut self) {
         self.expression();
-        self.consume(TokenKind::Semicolon, "Expect ';' after value.");
+        self.consume_end();
         self.emit(Opcode::Print as u8);
     }
 
@@ -355,24 +290,23 @@ impl<'src> Compiler<'src> {
         self.emit(Opcode::Pop as u8);
         self.block();
         let else_jump = self.emit_jump(Opcode::Jump as u8);
-        self.patch_jump(then_jump);
+        self.patch_jump(then_jump, 0);
         self.emit(Opcode::Pop as u8);
         if self.r#match(TokenKind::Else) {
             self.block();
         }
-        self.patch_jump(else_jump);
+        self.patch_jump(else_jump, 0);
     }
 
     fn return_statement(&mut self) {
-        let current_function_kind = self.context.function.kind;
-        if current_function_kind == FunctionKind::Script {
+        if self.context.scope_depth == 0 {
             self.error("Can't return from top-level code.");
         }
         if self.r#match(TokenKind::Semicolon) {
             self.emit_return();
         } else {
             self.expression();
-            self.consume(TokenKind::Semicolon, "Expect ';' after return value.");
+            self.consume_end();
             self.emit(Opcode::Return as u8);
         }
     }
@@ -381,23 +315,22 @@ impl<'src> Compiler<'src> {
         self.emit(operation);
         self.emit(u8::MAX);
         self.emit(u8::MAX);
-        self.current_chunk().code.len() - 2
+        self.code.bytes.len() - 2
     }
 
-    fn patch_jump(&mut self, index: usize) {
-        let jump_offset = self.current_chunk().code.len() - index - 2;
+    fn patch_jump(&mut self, index: usize, offset: usize) {
+        let jump_offset = self.code.bytes.len() - index - 2 - offset;
         if jump_offset > u16::MAX as usize {
             self.error("Loop body too large.");
             return;
         }
-        let function = &mut self.context.function;
         let bytes = (jump_offset as u16).to_le_bytes();
-        function.chunk.code[index] = bytes[0];
-        function.chunk.code[index + 1] = bytes[1];
+        self.code.bytes[index] = bytes[0];
+        self.code.bytes[index + 1] = bytes[1];
     }
 
     fn while_statement(&mut self) {
-        let loop_start = self.current_chunk().code.len();
+        let loop_start = self.code.bytes.len();
         self.expression();
 
         let exit_jump = self.emit_jump(Opcode::JumpIfFalse as u8);
@@ -405,13 +338,13 @@ impl<'src> Compiler<'src> {
         self.block();
         self.emit_loop(loop_start);
 
-        self.patch_jump(exit_jump);
+        self.patch_jump(exit_jump, 0);
         self.emit(Opcode::Pop as u8);
     }
 
     fn emit_loop(&mut self, loop_start: usize) {
         self.emit(Opcode::Loop as u8);
-        let offset = self.current_chunk().code.len() + 2 - loop_start;
+        let offset = self.code.bytes.len() + 2 - loop_start;
         if offset > u16::MAX as usize {
             self.error("Loop body too large.");
             return;
@@ -423,7 +356,7 @@ impl<'src> Compiler<'src> {
 
     fn expression_statement(&mut self) {
         self.expression();
-        self.consume(TokenKind::Semicolon, "Expect ';' after expression.");
+        self.consume_end();
         self.emit(Opcode::Pop as u8);
     }
 
@@ -443,16 +376,23 @@ impl<'src> Compiler<'src> {
             self.advance();
             return;
         }
-        self.error_at_current(message);
+        self.error(message);
+    }
+
+    fn consume_end(&mut self) {
+        match self.current.kind == TokenKind::Semicolon {
+            true => self.advance(),
+            false => self.error("Expect ';' at end of line"),
+        }
     }
 
     fn emit(&mut self, byte: u8) {
         let line = self.previous.line;
-        self.context.function.chunk.write(byte, line);
+        self.code.write(byte, line);
     }
 
     fn emit_constant(&mut self, value: Value) {
-        let Some(constant_index) = self.context.function.chunk.add_constant(value) else {
+        let Some(constant_index) = self.code.add_constant(value) else {
             self.error("Too many constants in one chunk.");
             return;
         };
@@ -492,7 +432,8 @@ impl<'src> Compiler<'src> {
     fn synchronise(&mut self) {
         self.panic_mode = false;
         while self.current.kind != TokenKind::Eof {
-            if self.previous.kind == TokenKind::Semicolon {
+            if self.previous.kind == TokenKind::Semicolon || self.current.kind == TokenKind::Hyphen
+            {
                 return;
             }
             match self.current.kind {
@@ -627,21 +568,12 @@ impl<'src> Compiler<'src> {
     pub fn named_variable(&mut self, token_name: &str, can_assign: bool) {
         let (get_operation_bytes, set_operation_bytes) =
             match self.context.resolve_local(token_name) {
-                Ok(Some(constant_index)) => (
+                Ok(constant_index) => (
                     (Opcode::GetLocal as u8, constant_index),
                     (Opcode::SetLocal as u8, constant_index),
                 ),
-                Ok(None) => {
-                    let Some(index) = self.constant_identifier(token_name) else {
-                        return;
-                    };
-                    (
-                        (Opcode::GetGlobal as u8, index),
-                        (Opcode::SetGlobal as u8, index),
-                    )
-                }
-                Err(e) => {
-                    self.error(&e);
+                Err(err) => {
+                    self.error(err);
                     return;
                 }
             };
@@ -660,19 +592,24 @@ impl<'src> Compiler<'src> {
         let and_jump = self.emit_jump(Opcode::JumpIfFalse as u8);
         self.emit(Opcode::Pop as u8);
         self.parse_precedence(Precedence::And);
-        self.patch_jump(and_jump);
+        self.patch_jump(and_jump, 0);
     }
 
     fn or(&mut self) {
         let else_jump = self.emit_jump(Opcode::JumpIfFalse as u8);
         let end_jump = self.emit_jump(Opcode::Jump as u8);
-        self.patch_jump(else_jump);
+        self.patch_jump(else_jump, 0);
         self.emit(Opcode::Pop as u8);
         self.parse_precedence(Precedence::Or);
-        self.patch_jump(end_jump);
+        self.patch_jump(end_jump, 0);
     }
 
     fn call(&mut self) {
+        if self.previous.kind == TokenKind::BareFunctionInvocation {
+            self.emit(Opcode::Call as u8);
+            self.emit(0);
+            return;
+        }
         let Some(argument_count) = self.argument_list() else {
             self.error("Can't have more than 255 arguments.");
             return;
@@ -707,6 +644,7 @@ impl<'src> Compiler<'src> {
                     }
                     break;
                 }
+                // TODO: early return on ParamOrder::Last instead?
                 _ => {
                     self.error(
                         "Expect ',' or 'and' to continue argument list, or ';' to mark the end of function invocation.",
@@ -717,63 +655,39 @@ impl<'src> Compiler<'src> {
         }
         Some(argument_count)
     }
-}
 
-#[derive(Debug, Default)]
-struct Local<'src> {
-    pub depth: Option<u8>,
-    pub name: &'src str,
-}
-
-impl Local<'_> {
-    fn reset(&mut self) {
-        self.depth = None;
-        self.name = "";
+    #[cfg(feature = "debug_code")]
+    fn debug(&self) {
+        self.code.disassemble();
     }
 }
 
 struct CompilerContext<'src> {
-    pub enclosing: Option<Box<CompilerContext<'src>>>,
-    function: Function,
+    enclosing: Option<Box<CompilerContext<'src>>>,
     scope_depth: u8,
-    locals: [Local<'src>; LOCALS_MAX_COUNT],
+    locals: [&'src str; LOCALS_MAX_COUNT],
     locals_count: usize,
 }
 
 impl<'src> CompilerContext<'src> {
-    pub fn new(name: &str, function_kind: FunctionKind) -> Self {
-        let function = Function::new(name.into(), function_kind);
-        let mut locals = std::array::from_fn(|_| Local::default());
-        locals[0].depth = Some(0);
-
+    pub fn new() -> Self {
         Self {
             enclosing: None,
-            function,
-            scope_depth: 0,
-            locals,
+            locals: [""; LOCALS_MAX_COUNT],
             locals_count: 0,
+            scope_depth: 0,
         }
     }
 
-    fn resolve_local(&self, token_name: &str) -> Result<Option<u8>, String> {
-        for (index, local) in self.locals.iter().enumerate().rev() {
-            if token_name == local.name {
-                if local.depth.is_none() {
-                    return Err("Can't read local variable in its own initializer.".into());
-                }
-                return Ok(Some(index as u8));
+    fn resolve_local(&mut self, token_name: &str) -> Result<u8, &'src str> {
+        for (index, local_name) in self.locals.iter().enumerate().rev() {
+            if token_name == *local_name {
+                return Ok(index as u8);
             }
         }
-        // Assume global variable
-        Ok(None)
-    }
-
-    #[cfg(feature = "debug_code")]
-    fn debug(&self) {
-        let name = match self.function.name.is_empty() {
-            true => "<script>".into(),
-            false => self.function.name.clone(),
-        };
-        self.function.chunk.disassemble(&name);
+        if let Some(parent_compiler) = self.enclosing.as_deref_mut() {
+            return parent_compiler.resolve_local(token_name);
+        }
+        Err("Identifier not defined.")
     }
 }
