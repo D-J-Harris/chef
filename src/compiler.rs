@@ -68,11 +68,7 @@ impl<'src> Compiler<'src> {
             TokenKind::Steps,
             "Expect 'Recipe' to contain 'Steps' section",
         );
-        while !self.r#match(TokenKind::Eof) {
-            if self.declaration() {
-                break;
-            }
-        }
+        self.block();
         self.emit_return();
         #[cfg(feature = "debug_code")]
         self.debug();
@@ -108,15 +104,20 @@ impl<'src> Compiler<'src> {
             || self.check(TokenKind::Eof)
     }
 
+    fn is_end_utensils(&self) -> bool {
+        self.check(TokenKind::Steps) || self.check(TokenKind::Eof)
+    }
+
     fn parse_utensils(&mut self) {
         if !self.r#match(TokenKind::Utensils) {
             return;
         }
-        while !self.check(TokenKind::Steps) && !self.check(TokenKind::Eof) {
-            if !self.r#match(TokenKind::Var) {
-                self.error_at_current("Must define function with a '+'-bulleted list.");
+        while !self.is_end_utensils() {
+            if !self.check(TokenKind::Var) {
+                self.error_at_current("Utensil declarations should begin with '+'.");
                 break;
             }
+            self.advance();
             self.fun_declaration();
         }
     }
@@ -131,14 +132,6 @@ impl<'src> Compiler<'src> {
 
     fn check(&self, token_kind: TokenKind) -> bool {
         self.current.kind == token_kind
-    }
-
-    fn declaration(&mut self) -> bool {
-        let done = self.statement();
-        if self.panic_mode {
-            self.synchronise();
-        }
-        done
     }
 
     fn fun_declaration(&mut self) {
@@ -245,14 +238,11 @@ impl<'src> Compiler<'src> {
 
     fn statement(&mut self) -> bool {
         if !self.check(TokenKind::Hyphen) {
-            self.error_at_current(
-                "Instructions should be preceded by a bullet point character '-'. Maybe a previous set of instructions was not terminated with a 'finish' step?",
-            );
+            self.error_at_current("Steps should end with 'finish' step.");
             return true;
         }
         self.advance();
         if self.r#match(TokenKind::RightBrace) {
-            self.consume_end();
             return true;
         } else if self.r#match(TokenKind::Print) {
             self.print_statement();
@@ -273,8 +263,12 @@ impl<'src> Compiler<'src> {
     }
 
     fn block(&mut self) {
-        while !self.check(TokenKind::Eof) {
-            if self.declaration() {
+        while self.check(TokenKind::Eof) || self.check(TokenKind::Hyphen) {
+            let done = self.statement();
+            if self.panic_mode {
+                self.synchronise();
+            }
+            if done {
                 break;
             }
         }
@@ -282,7 +276,7 @@ impl<'src> Compiler<'src> {
 
     fn print_statement(&mut self) {
         self.expression();
-        self.consume_end();
+        self.check_end_step();
         self.emit(Opcode::Print as u8);
     }
 
@@ -308,7 +302,7 @@ impl<'src> Compiler<'src> {
             self.emit_return();
         } else {
             self.expression();
-            self.consume_end();
+            self.check_end_step();
             self.emit(Opcode::Return as u8);
         }
     }
@@ -358,7 +352,7 @@ impl<'src> Compiler<'src> {
 
     fn expression_statement(&mut self) {
         self.expression();
-        self.consume_end();
+        self.check_end_step();
         self.emit(Opcode::Pop as u8);
     }
 
@@ -381,10 +375,9 @@ impl<'src> Compiler<'src> {
         self.error(message);
     }
 
-    fn consume_end(&mut self) {
-        match self.current.kind == TokenKind::Semicolon {
-            true => self.advance(),
-            false => self.error("Expect ';' at end of line"),
+    fn check_end_step(&mut self) {
+        if self.current.kind != TokenKind::Hyphen {
+            self.error_at_current("Step termination invalid")
         }
     }
 
@@ -632,28 +625,28 @@ impl<'src> Compiler<'src> {
             };
             match self.current.kind {
                 TokenKind::Comma => {
+                    if order == ParamOrder::Last {
+                        self.error_at_current("Invalid ',' after final argument.");
+                    }
                     order = ParamOrder::Middle;
                     self.advance();
                     continue;
                 }
                 TokenKind::ParameterAnd => {
+                    if order == ParamOrder::Last {
+                        self.error_at_current("Invalid 'and' after final argument.");
+                    }
                     order = ParamOrder::Last;
                     self.advance();
                     continue;
                 }
-                TokenKind::Semicolon => {
+                TokenKind::Hyphen => {
                     if order == ParamOrder::Middle {
-                        self.error("function arguments should be a list where the final element is preceded by 'and'");
+                        self.error_at_current("function argument list should terminate with 'and' before final argument.");
                     }
                     break;
                 }
-                // TODO: early return on ParamOrder::Last instead?
-                _ => {
-                    self.error(
-                        "Expect ',' or 'and' to continue argument list, or ';' to mark the end of function invocation.",
-                    );
-                    break;
-                }
+                _ => self.error_at_current("Invalid termination of function invocation."),
             }
         }
         Some(argument_count)
