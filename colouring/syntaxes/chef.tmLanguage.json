@@ -39,7 +39,7 @@
         },
         {
           "name": "keyword.operator.chef",
-          "match": "\\b(set|to|above|below|is|isnt|not|add|minus|compliments|or|equals|split|combine)\\b"
+          "match": "\\b(above|below|is|isnt|not|add|minus|compliments|or|equals|split|combine)\\b"
         }
       ]
     },
@@ -75,7 +75,7 @@
       "patterns": [
         {
           "name": "storage.type.chef",
-          "match": "[+*]"
+          "match": "(set|to)"
         }
       ]
     },
@@ -83,7 +83,7 @@
       "patterns": [
         {
           "name": "entity.name.function.chef",
-          "match": "\\b(with|now|whisk|bake|cook)\\b"
+          "match": "(\\b(with|now|,|and|whisk|bake|cook)\\b|,)"
         }
       ]
     },

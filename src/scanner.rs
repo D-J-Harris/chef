@@ -34,8 +34,8 @@ impl<'src> Scanner<'src> {
         identifiers.insert("serve", TokenKind::Return);
         identifiers.insert("true", TokenKind::True);
         identifiers.insert("while", TokenKind::While);
-        identifiers.insert("Recipe", TokenKind::Recipe);
         identifiers.insert("end", TokenKind::RightBrace);
+        identifiers.insert("Recipe", TokenKind::Recipe);
         identifiers.insert("Ingredients", TokenKind::Ingredients);
         identifiers.insert("Utensils", TokenKind::Utensils);
         identifiers.insert("Steps", TokenKind::Steps);
@@ -54,6 +54,8 @@ impl<'src> Scanner<'src> {
         identifiers.insert("whisk", TokenKind::FunIdent);
         identifiers.insert("bake", TokenKind::FunIdent);
         identifiers.insert("cook", TokenKind::FunIdent);
+        identifiers.insert("time", TokenKind::FunIdent);
+
         Self {
             identifiers,
             source,
@@ -85,7 +87,8 @@ impl<'src> Scanner<'src> {
             b'.' => self.make_token(TokenKind::Dot),
             b'"' => self.make_string_token(),
             b if b.is_ascii_digit() => self.make_number_token(),
-            _ => self.make_error_token("Invalid character"),
+            b if is_alpha(b) => self.make_identifier_token(),
+            _ => self.make_error_token("Invalid character."),
         }
     }
 
@@ -106,6 +109,20 @@ impl<'src> Scanner<'src> {
             kind: TokenKind::Error,
             lexeme: message,
             line: self.line,
+        }
+    }
+
+    fn make_identifier_token(&mut self) -> Token<'src> {
+        loop {
+            let byte = self.peek();
+            if !byte.is_ascii_digit() && !is_alpha(byte) {
+                break;
+            }
+            self.current += 1;
+        }
+        match self.identifiers.get(self.lexeme()) {
+            Some(kind) => self.make_token(*kind),
+            None => self.make_error_token("Invalid identifier."),
         }
     }
 

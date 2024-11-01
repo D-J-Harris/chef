@@ -4,10 +4,10 @@ use crate::value::Value;
 
 pub type NativeFunction = fn(arg_count: u8, ip: usize) -> Value;
 
-const NATIVE_FUNCTION_COUNT: usize = 2;
+const NATIVE_FUNCTION_COUNT: usize = 1;
 
 pub fn declare_native_functions() -> [(&'static str, NativeFunction); NATIVE_FUNCTION_COUNT] {
-    [("time", current_time_s), ("stir", do_nothing)]
+    [("time", current_time_s)]
 }
 
 fn current_time() -> Duration {
@@ -19,8 +19,4 @@ fn current_time() -> Duration {
 
 fn current_time_s(_: u8, _: usize) -> Value {
     Value::Number(current_time().as_secs_f64().floor())
-}
-
-fn do_nothing(_: u8, _: usize) -> Value {
-    Value::Nil
 }
