@@ -91,7 +91,7 @@ impl<'src> Compiler<'src> {
             return;
         }
         while !self.is_end_ingredients() {
-            if !self.check(TokenKind::VarIdent) {
+            if !self.check(TokenKind::Var) {
                 self.error_at_current("Expect ingredient name.");
                 break;
             }
@@ -135,7 +135,7 @@ impl<'src> Compiler<'src> {
     }
 
     fn fun_declaration(&mut self) {
-        self.consume(TokenKind::FunIdent, "Expect next utensil.");
+        self.consume(TokenKind::FunIdent, "Expect utensil identifier name.");
         self.define_variable();
         self.function();
     }
@@ -207,15 +207,16 @@ impl<'src> Compiler<'src> {
     }
 
     fn var_declaration(&mut self) {
-        self.consume(TokenKind::VarIdent, "Expect ingredient identifier.");
+        self.consume(TokenKind::Var, "Expect 'set' ingredient identifier.");
+        self.consume(TokenKind::VarIdent, "Expect ingredient identifier name.");
         self.define_variable();
         if self.r#match(TokenKind::Equal) {
             self.expression();
         } else {
             self.emit(Opcode::Nil as u8);
         }
-        if !(self.is_end_ingredients() || self.check(TokenKind::VarIdent)) {
-            self.error_at_current("Expect next ingredient.");
+        if !(self.is_end_ingredients() || self.check(TokenKind::Var)) {
+            self.error_at_current("Expect 'set' ingredient identifier.");
         }
     }
 
@@ -263,6 +264,8 @@ impl<'src> Compiler<'src> {
             self.return_statement();
         } else if self.r#match(TokenKind::While) {
             self.while_statement();
+        } else if self.r#match(TokenKind::Var) {
+            self.expression_statement()
         } else {
             self.expression_statement();
         }
@@ -320,13 +323,9 @@ impl<'src> Compiler<'src> {
         if self.context.scope_ordering.len() == 1 {
             self.error("Can't return from top-level code.");
         }
-        if self.r#match(TokenKind::Semicolon) {
-            self.emit_return();
-        } else {
-            self.expression();
-            self.check_end_step();
-            self.emit(Opcode::Return as u8);
-        }
+        self.expression();
+        self.check_end_step();
+        self.emit(Opcode::Return as u8);
     }
 
     fn emit_jump(&mut self, operation: u8) -> usize {
@@ -396,7 +395,7 @@ impl<'src> Compiler<'src> {
             self.advance();
             return;
         }
-        self.error(message);
+        self.error_at_current(message);
     }
 
     fn check_end_step(&mut self) {
@@ -454,8 +453,7 @@ impl<'src> Compiler<'src> {
     fn synchronise(&mut self) {
         self.panic_mode = false;
         while self.current.kind != TokenKind::Eof {
-            if self.previous.kind == TokenKind::Semicolon || self.current.kind == TokenKind::Number
-            {
+            if self.current.kind == TokenKind::Number {
                 return;
             }
             match self.current.kind {
@@ -474,17 +472,19 @@ impl<'src> Compiler<'src> {
     }
 
     pub fn parse_precedence(&mut self, precedence: Precedence) {
+        let can_assign = self.previous.kind == TokenKind::Var && Self::can_assign(precedence);
         self.advance();
         let prefix_rule = Precedence::get_rule(self.previous.kind).prefix;
         if prefix_rule == ParseFunctionKind::None {
             self.error("Expect expression.");
             return;
         };
-        self.execute_rule(prefix_rule, precedence);
+        self.execute_rule(prefix_rule, can_assign);
         while precedence <= Precedence::get_rule(self.current.kind).precedence {
+            let can_assign = self.previous.kind == TokenKind::Var && Self::can_assign(precedence);
             self.advance();
             let infix_rule = Precedence::get_rule(self.previous.kind).infix;
-            self.execute_rule(infix_rule, precedence);
+            self.execute_rule(infix_rule, can_assign);
         }
 
         if Self::can_assign(precedence) && self.r#match(TokenKind::Equal) {
@@ -496,7 +496,7 @@ impl<'src> Compiler<'src> {
         precedence <= Precedence::Assignment
     }
 
-    fn execute_rule(&mut self, kind: ParseFunctionKind, precedence: Precedence) {
+    fn execute_rule(&mut self, kind: ParseFunctionKind, can_assign: bool) {
         match kind {
             ParseFunctionKind::None => {}
             ParseFunctionKind::Grouping => Self::grouping(self),
@@ -505,7 +505,7 @@ impl<'src> Compiler<'src> {
             ParseFunctionKind::Number => Self::number(self),
             ParseFunctionKind::Literal => Self::literal(self),
             ParseFunctionKind::String => Self::string(self),
-            ParseFunctionKind::Variable => Self::variable(self, Self::can_assign(precedence)),
+            ParseFunctionKind::Variable => Self::variable(self, can_assign),
             ParseFunctionKind::And => Self::and(self),
             ParseFunctionKind::Or => Self::or(self),
             ParseFunctionKind::Call => Self::call(self),
@@ -544,14 +544,6 @@ impl<'src> Compiler<'src> {
             TokenKind::Less => self.emit(Opcode::Less as u8),
             TokenKind::BangEqual => {
                 self.emit(Opcode::Equal as u8);
-                self.emit(Opcode::Not as u8);
-            }
-            TokenKind::GreaterEqual => {
-                self.emit(Opcode::Less as u8);
-                self.emit(Opcode::Not as u8);
-            }
-            TokenKind::LessEqual => {
-                self.emit(Opcode::Greater as u8);
                 self.emit(Opcode::Not as u8);
             }
             _ => unreachable!(),

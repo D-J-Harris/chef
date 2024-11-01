@@ -25,6 +25,9 @@
     },
     {
       "include": "#variable"
+    },
+    {
+      "include": "#constant"
     }
   ],
   "repository": {
@@ -32,7 +35,11 @@
       "patterns": [
         {
           "name": "keyword.control.chef",
-          "match": "\\b(check|while|taste|serve|finish)\\b"
+          "match": "\\b(check|otherwise|while|taste|serve|end)\\b"
+        },
+        {
+          "name": "keyword.operator.chef",
+          "match": "\\b(set|to|above|below|is|isnt|not|add|minus|compliments|or|equals|split|combine)\\b"
         }
       ]
     },
@@ -51,7 +58,7 @@
       "patterns": [
         {
           "name": "support.function.chef",
-          "match": "\\b(clock)\\b"
+          "match": "\\b(time|stir)\\b"
         }
       ]
     },
@@ -85,6 +92,10 @@
         {
           "name": "markup.heading.chef",
           "match": "\\b(Recipe|Ingredients|Utensils|Steps)\\b"
+        },
+        {
+          "name": "markup.list.numbered.chef",
+          "match": "\\s(\\d+\\.)\\s"
         }
       ]
     },
@@ -96,7 +107,19 @@
         },
         {
           "name": "variable.parameter.chef",
-          "match": "\\bwith\\b\\s+(?!,|and\b)(\\w+)(?:\\s*,\\s*(?!and\b)(\\w+))*(?:\\s+and\\s+(\\w+))?"
+          "match": "[xyz]"
+        }
+      ]
+    },
+    "constant": {
+      "patterns": [
+        {
+          "name": "constant.language.chef",
+          "match": "\\b(true|false|nil)\\b"
+        },
+        {
+          "name": "constant.numeric.chef",
+          "match": "\\d*\\.?\\d+"
         }
       ]
     }

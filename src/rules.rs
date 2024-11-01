@@ -65,22 +65,12 @@ impl Precedence {
                 infix: ParseFunctionKind::Call,
                 precedence: Precedence::Call,
             },
-            TokenKind::LeftBrace => ParseRule {
-                prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
-            },
             TokenKind::RightBrace => ParseRule {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },
             TokenKind::ParameterAnd => ParseRule {
-                prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
-            },
-            TokenKind::Hyphen => ParseRule {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
@@ -101,11 +91,6 @@ impl Precedence {
                 precedence: Precedence::Term,
             },
             TokenKind::Dot => ParseRule {
-                prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
-            },
-            TokenKind::Semicolon => ParseRule {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
@@ -145,17 +130,7 @@ impl Precedence {
                 infix: ParseFunctionKind::Binary,
                 precedence: Precedence::Comparison,
             },
-            TokenKind::GreaterEqual => ParseRule {
-                prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::Binary,
-                precedence: Precedence::Comparison,
-            },
             TokenKind::Less => ParseRule {
-                prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::Binary,
-                precedence: Precedence::Comparison,
-            },
-            TokenKind::LessEqual => ParseRule {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::Binary,
                 precedence: Precedence::Comparison,
@@ -172,6 +147,11 @@ impl Precedence {
             },
             TokenKind::Ident => ParseRule {
                 prefix: ParseFunctionKind::Variable,
+                infix: ParseFunctionKind::None,
+                precedence: Precedence::None,
+            },
+            TokenKind::Var => ParseRule {
+                prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },
@@ -221,11 +201,6 @@ impl Precedence {
                 precedence: Precedence::None,
             },
             TokenKind::Return => ParseRule {
-                prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
-            },
-            TokenKind::Colon => ParseRule {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
