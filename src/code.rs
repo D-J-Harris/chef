@@ -52,18 +52,18 @@ impl Code {
         self.lines.push(line);
     }
 
-    pub fn add_constant(&mut self, value: Value) -> Option<u8> {
+    pub fn add_constant(&mut self, value: Value) -> Result<u8, &'static str> {
         for constant_index in 0..self.constants_count {
             if value == self.constants[constant_index] {
-                return Some(constant_index as u8);
+                return Ok(constant_index as u8);
             }
         }
         if self.constants_count == CONSTANTS_MAX_COUNT {
-            return None;
+            return Err("Too many constants defined in scope.");
         }
         self.constants[self.constants_count] = value;
         self.constants_count += 1;
-        Some((self.constants_count - 1) as u8)
+        Ok((self.constants_count - 1) as u8)
     }
 }
 

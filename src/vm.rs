@@ -15,10 +15,10 @@ pub struct CallFrame {
 
 pub struct State {
     ip: usize,
-    pub code: Code,
+    code: Code,
     frames: [Option<CallFrame>; CALL_FRAMES_MAX_COUNT],
     frame_count: usize,
-    pub stack: [Option<Value>; STACK_VALUES_MAX_COUNT],
+    stack: [Option<Value>; STACK_VALUES_MAX_COUNT],
     stack_top: usize,
 }
 
@@ -92,9 +92,6 @@ impl State {
 
     pub fn run(&mut self) -> InterpretResult<()> {
         loop {
-            if self.stack_top > 10 {
-                return Err(ChefError::OutOfBounds);
-            }
             let byte = self.read_byte();
             #[cfg(feature = "debug_trace")]
             self.code.disassemble_instruction(self.ip - 1);

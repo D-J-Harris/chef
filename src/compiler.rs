@@ -7,7 +7,7 @@ use crate::value::{Function, Value};
 use crate::{code::Code, scanner::Scanner};
 
 #[derive(PartialEq)]
-enum ParamOrder {
+enum ArgumentPosition {
     First,
     Middle,
     Last,
@@ -20,7 +20,7 @@ pub struct Compiler<'src> {
     context: CompilerContext<'src>,
     had_error: bool,
     panic_mode: bool,
-    pub code: Code,
+    code: Code,
 }
 
 impl<'src> Compiler<'src> {
@@ -38,7 +38,9 @@ impl<'src> Compiler<'src> {
         };
         for (name, function) in declare_native_functions() {
             compiler.emit_constant(Value::NativeFunction(function));
-            compiler.add_local(name);
+            if let Err(err) = compiler.add_local(name) {
+                compiler.error(err);
+            }
         }
         compiler
     }
@@ -98,16 +100,6 @@ impl<'src> Compiler<'src> {
         }
     }
 
-    fn is_end_ingredients(&self) -> bool {
-        self.check(TokenKind::Utensils)
-            || self.check(TokenKind::Steps)
-            || self.check(TokenKind::Eof)
-    }
-
-    fn is_end_utensils(&self) -> bool {
-        self.check(TokenKind::Steps) || self.check(TokenKind::Eof)
-    }
-
     fn parse_utensils(&mut self) {
         if !self.r#match(TokenKind::Utensils) {
             return;
@@ -120,6 +112,16 @@ impl<'src> Compiler<'src> {
             self.advance();
             self.fun_declaration();
         }
+    }
+
+    fn is_end_ingredients(&self) -> bool {
+        self.check(TokenKind::Utensils)
+            || self.check(TokenKind::Steps)
+            || self.check(TokenKind::Eof)
+    }
+
+    fn is_end_utensils(&self) -> bool {
+        self.check(TokenKind::Steps) || self.check(TokenKind::Eof)
     }
 
     fn r#match(&mut self, token_kind: TokenKind) -> bool {
@@ -148,7 +150,7 @@ impl<'src> Compiler<'src> {
 
         if self.check(TokenKind::LeftParen) {
             self.advance();
-            let mut order = ParamOrder::First;
+            let mut order = ArgumentPosition::First;
             loop {
                 if function_arity == FUNCTION_ARITY_MAX_COUNT {
                     self.error_at_current("Can't have more than 255 parameters.");
@@ -159,22 +161,22 @@ impl<'src> Compiler<'src> {
                 self.define_variable();
                 match self.current.kind {
                     TokenKind::Comma => {
-                        order = ParamOrder::Middle;
+                        order = ArgumentPosition::Middle;
                         self.advance();
                         continue;
                     }
                     TokenKind::ParameterAnd => {
-                        if order == ParamOrder::Last {
+                        if order == ArgumentPosition::Last {
                             self.error(
                             "Can not use the 'and' list keyword multiple times, use ',' instead.",
                         );
                         }
-                        order = ParamOrder::Last;
+                        order = ArgumentPosition::Last;
                         self.advance();
                         continue;
                     }
                     TokenKind::Hyphen => {
-                        if order == ParamOrder::Middle {
+                        if order == ArgumentPosition::Middle {
                             self.error("Function parameters should be a list where the final element is preceded by 'and'");
                         }
                         break;
@@ -192,15 +194,18 @@ impl<'src> Compiler<'src> {
             arity: function_arity,
             ip_start: self.code.bytes.len(),
         };
-        let Some(constant_index) = self.code.add_constant(Value::Function(function)) else {
-            self.error("Too many constants in one chunk.");
-            return;
+        let constant_index = match self.code.add_constant(Value::Function(function)) {
+            Ok(constant_index) => constant_index,
+            Err(err) => {
+                self.error(err);
+                return;
+            }
         };
         self.block();
         self.end_compiler();
+        self.patch_jump(fun_jump);
         self.emit(Opcode::Constant as u8);
         self.emit(constant_index);
-        self.patch_jump(fun_jump, 2);
     }
 
     fn var_declaration(&mut self) {
@@ -227,13 +232,18 @@ impl<'src> Compiler<'src> {
         if has_match_name_error {
             self.error("Already a variable with this name in this scope.");
         }
-        self.add_local(name);
+        if let Err(err) = self.add_local(name) {
+            self.error(err);
+        }
     }
 
-    pub fn add_local(&mut self, name: &'src str) {
-        let locals_count = &mut self.context.locals_count;
-        self.context.locals[*locals_count] = name;
-        *locals_count += 1;
+    pub fn add_local(&mut self, name: &'src str) -> Result<(), &'static str> {
+        if self.context.locals_count == LOCALS_MAX_COUNT {
+            return Err("Too many locals defined in scope.");
+        }
+        self.context.locals[self.context.locals_count] = name;
+        self.context.locals_count += 1;
+        Ok(())
     }
 
     fn statement(&mut self) -> bool {
@@ -286,12 +296,12 @@ impl<'src> Compiler<'src> {
         self.emit(Opcode::Pop as u8);
         self.block();
         let else_jump = self.emit_jump(Opcode::Jump as u8);
-        self.patch_jump(then_jump, 0);
+        self.patch_jump(then_jump);
         self.emit(Opcode::Pop as u8);
         if self.r#match(TokenKind::Else) {
             self.block();
         }
-        self.patch_jump(else_jump, 0);
+        self.patch_jump(else_jump);
     }
 
     fn return_statement(&mut self) {
@@ -314,8 +324,8 @@ impl<'src> Compiler<'src> {
         self.code.bytes.len() - 2
     }
 
-    fn patch_jump(&mut self, index: usize, offset: usize) {
-        let jump_offset = self.code.bytes.len() - index - 2 - offset;
+    fn patch_jump(&mut self, index: usize) {
+        let jump_offset = self.code.bytes.len() - index - 2;
         if jump_offset > u16::MAX as usize {
             self.error("Loop body too large.");
             return;
@@ -334,7 +344,7 @@ impl<'src> Compiler<'src> {
         self.block();
         self.emit_loop(loop_start);
 
-        self.patch_jump(exit_jump, 0);
+        self.patch_jump(exit_jump);
         self.emit(Opcode::Pop as u8);
     }
 
@@ -387,9 +397,12 @@ impl<'src> Compiler<'src> {
     }
 
     fn emit_constant(&mut self, value: Value) {
-        let Some(constant_index) = self.code.add_constant(value) else {
-            self.error("Too many constants in one chunk.");
-            return;
+        let constant_index = match self.code.add_constant(value) {
+            Ok(constant_index) => constant_index,
+            Err(err) => {
+                self.error(err);
+                return;
+            }
         };
         self.emit(Opcode::Constant as u8);
         self.emit(constant_index);
@@ -588,16 +601,16 @@ impl<'src> Compiler<'src> {
         let and_jump = self.emit_jump(Opcode::JumpIfFalse as u8);
         self.emit(Opcode::Pop as u8);
         self.parse_precedence(Precedence::And);
-        self.patch_jump(and_jump, 0);
+        self.patch_jump(and_jump);
     }
 
     fn or(&mut self) {
         let else_jump = self.emit_jump(Opcode::JumpIfFalse as u8);
         let end_jump = self.emit_jump(Opcode::Jump as u8);
-        self.patch_jump(else_jump, 0);
+        self.patch_jump(else_jump);
         self.emit(Opcode::Pop as u8);
         self.parse_precedence(Precedence::Or);
-        self.patch_jump(end_jump, 0);
+        self.patch_jump(end_jump);
     }
 
     fn call(&mut self) {
@@ -616,7 +629,7 @@ impl<'src> Compiler<'src> {
 
     fn argument_list(&mut self) -> Option<u8> {
         let mut argument_count: u8 = 0;
-        let mut order = ParamOrder::First;
+        let mut order = ArgumentPosition::First;
         loop {
             self.expression();
             argument_count = match argument_count.checked_add(1) {
@@ -625,23 +638,23 @@ impl<'src> Compiler<'src> {
             };
             match self.current.kind {
                 TokenKind::Comma => {
-                    if order == ParamOrder::Last {
+                    if order == ArgumentPosition::Last {
                         self.error_at_current("Invalid ',' after final argument.");
                     }
-                    order = ParamOrder::Middle;
+                    order = ArgumentPosition::Middle;
                     self.advance();
                     continue;
                 }
                 TokenKind::ParameterAnd => {
-                    if order == ParamOrder::Last {
+                    if order == ArgumentPosition::Last {
                         self.error_at_current("Invalid 'and' after final argument.");
                     }
-                    order = ParamOrder::Last;
+                    order = ArgumentPosition::Last;
                     self.advance();
                     continue;
                 }
                 TokenKind::Hyphen => {
-                    if order == ParamOrder::Middle {
+                    if order == ArgumentPosition::Middle {
                         self.error_at_current("function argument list should terminate with 'and' before final argument.");
                     }
                     break;

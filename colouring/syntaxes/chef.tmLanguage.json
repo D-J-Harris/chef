@@ -29,7 +29,7 @@
       "patterns": [
         {
           "name": "keyword.control.chef",
-          "match": "\\b(check|while|serve|finish)\\b"
+          "match": "\\b(check|while|taste|serve|finish)\\b"
         }
       ]
     },
@@ -88,8 +88,12 @@
     "variable": {
       "patterns": [
         {
-          "name": "variable.language",
+          "name": "variable.language.chef",
           "match": "\\b(egg|flour|sugar|milk|chocolate|banana)\\b"
+        },
+        {
+          "name": "variable.parameter.chef",
+          "match": "\\bwith\\b\\s+(?!,|and\b)(\\w+)(?:\\s*,\\s*(?!and\b)(\\w+))*(?:\\s+and\\s+(\\w+))?"
         }
       ]
     }
