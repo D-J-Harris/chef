@@ -155,7 +155,7 @@ impl<'src> Compiler<'src> {
                     return;
                 }
                 function_arity += 1;
-                self.consume(TokenKind::Ident, "Expect parameter name.");
+                self.consume(TokenKind::ParameterIdent, "Expect parameter name.");
                 self.define_variable();
                 match self.current.kind {
                     TokenKind::Comma => {

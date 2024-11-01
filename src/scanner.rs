@@ -40,9 +40,9 @@ impl<'src> Scanner<'src> {
         identifiers.insert("Utensils", TokenKind::Utensils);
         identifiers.insert("Steps", TokenKind::Steps);
 
-        identifiers.insert("x", TokenKind::Ident);
-        identifiers.insert("y", TokenKind::Ident);
-        identifiers.insert("z", TokenKind::Ident);
+        identifiers.insert("x", TokenKind::ParameterIdent);
+        identifiers.insert("y", TokenKind::ParameterIdent);
+        identifiers.insert("z", TokenKind::ParameterIdent);
 
         identifiers.insert("egg", TokenKind::VarIdent);
         identifiers.insert("flour", TokenKind::VarIdent);
@@ -214,13 +214,14 @@ pub enum TokenKind {
     // Literals.
     VarIdent,
     FunIdent,
-    Ident,
+    ParameterIdent,
     String,
     Number,
     // Keywords.
     And,
     Else,
     False,
+    Go,
     If,
     Nil,
     Or,
