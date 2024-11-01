@@ -75,7 +75,6 @@ impl<'src> Scanner<'src> {
             b',' => self.make_token(TokenKind::Comma),
             b'.' => self.make_token(TokenKind::Dot),
             b'-' => self.make_token(TokenKind::Hyphen),
-            b'+' => self.make_token(TokenKind::Var),
             b'/' => self.make_token(TokenKind::Slash),
             b'!' => match self.is_match(b'=') {
                 true => self.make_token(TokenKind::BangEqual),
@@ -253,7 +252,6 @@ pub enum TokenKind {
     Print,
     Return,
     True,
-    Var,
     While,
     ParameterAnd,
     Recipe,

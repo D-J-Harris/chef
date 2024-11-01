@@ -91,11 +91,10 @@ impl<'src> Compiler<'src> {
             return;
         }
         while !self.is_end_ingredients() {
-            if !self.check(TokenKind::Var) {
-                self.error_at_current("Ingredient declarations should begin with '+'.");
+            if !self.check(TokenKind::VarIdent) {
+                self.error_at_current("Expect ingredient name.");
                 break;
             }
-            self.advance();
             self.var_declaration();
         }
     }
@@ -105,11 +104,10 @@ impl<'src> Compiler<'src> {
             return;
         }
         while !self.is_end_utensils() {
-            if !self.check(TokenKind::Var) {
-                self.error_at_current("Utensil declarations should begin with '+'.");
+            if !self.check(TokenKind::FunIdent) {
+                self.error_at_current("Expect utensil name.");
                 break;
             }
-            self.advance();
             self.fun_declaration();
         }
     }
@@ -137,7 +135,7 @@ impl<'src> Compiler<'src> {
     }
 
     fn fun_declaration(&mut self) {
-        self.consume(TokenKind::FunIdent, "Expect utensil function identifier.");
+        self.consume(TokenKind::FunIdent, "Expect next utensil.");
         self.define_variable();
         self.function();
     }
@@ -175,14 +173,14 @@ impl<'src> Compiler<'src> {
                         self.advance();
                         continue;
                     }
-                    TokenKind::Hyphen => {
+                    TokenKind::Number => {
                         if order == ArgumentPosition::Middle {
                             self.error("Function parameters should be a list where the final element is preceded by 'and'");
                         }
                         break;
                     }
                     _ => {
-                        self.error("Expect ',' or 'and' to continue parameter list, or '-' for the first step.");
+                        self.error("Expect ',' or 'and' to continue parameter list, or instructions to be a numbered list.");
                         break;
                     }
                 }
@@ -216,8 +214,8 @@ impl<'src> Compiler<'src> {
         } else {
             self.emit(Opcode::Nil as u8);
         }
-        if !(self.is_end_ingredients() || self.check(TokenKind::Var)) {
-            self.error_at_current("Ingredient declaration termination invalid.");
+        if !(self.is_end_ingredients() || self.check(TokenKind::VarIdent)) {
+            self.error_at_current("Expect next ingredient.");
         }
     }
 
@@ -247,11 +245,14 @@ impl<'src> Compiler<'src> {
     }
 
     fn statement(&mut self) -> bool {
-        if !self.check(TokenKind::Hyphen) {
-            self.error_at_current("Steps should end with 'finish' step.");
+        let current_step = self.context.scope_ordering.last_mut().unwrap();
+        if self.current.lexeme != current_step.to_string() {
+            self.error_at_current("Expect instruction numbers to increase starting from '1'.");
             return true;
         }
+        *current_step += 1;
         self.advance();
+        self.consume(TokenKind::Dot, "Expect '.' after instruction number");
         if self.r#match(TokenKind::RightBrace) {
             return true;
         } else if self.r#match(TokenKind::Print) {
@@ -269,11 +270,18 @@ impl<'src> Compiler<'src> {
     }
 
     fn begin_scope(&mut self) {
-        self.context.scope_depth += 1;
+        self.context.scope_ordering.push(1);
+    }
+
+    fn end_scope(&mut self) {
+        self.context.scope_ordering.pop();
     }
 
     fn block(&mut self) {
-        while self.check(TokenKind::Eof) || self.check(TokenKind::Hyphen) {
+        if !self.check(TokenKind::Number) {
+            self.error_at_current("Expect instructions to begin with step number '1.'.");
+        }
+        while self.check(TokenKind::Eof) || self.check(TokenKind::Number) {
             let done = self.statement();
             if self.panic_mode {
                 self.synchronise();
@@ -294,18 +302,22 @@ impl<'src> Compiler<'src> {
         self.expression();
         let then_jump = self.emit_jump(Opcode::JumpIfFalse as u8);
         self.emit(Opcode::Pop as u8);
+        self.begin_scope();
         self.block();
+        self.end_scope();
         let else_jump = self.emit_jump(Opcode::Jump as u8);
         self.patch_jump(then_jump);
         self.emit(Opcode::Pop as u8);
         if self.r#match(TokenKind::Else) {
+            self.begin_scope();
             self.block();
+            self.end_scope();
         }
         self.patch_jump(else_jump);
     }
 
     fn return_statement(&mut self) {
-        if self.context.scope_depth == 0 {
+        if self.context.scope_ordering.len() == 1 {
             self.error("Can't return from top-level code.");
         }
         if self.r#match(TokenKind::Semicolon) {
@@ -341,7 +353,9 @@ impl<'src> Compiler<'src> {
 
         let exit_jump = self.emit_jump(Opcode::JumpIfFalse as u8);
         self.emit(Opcode::Pop as u8);
+        self.begin_scope();
         self.block();
+        self.end_scope();
         self.emit_loop(loop_start);
 
         self.patch_jump(exit_jump);
@@ -386,8 +400,8 @@ impl<'src> Compiler<'src> {
     }
 
     fn check_end_step(&mut self) {
-        if self.current.kind != TokenKind::Hyphen {
-            self.error_at_current("Step termination invalid")
+        if self.current.kind != TokenKind::Number {
+            self.error_at_current("Expect next instruction in the sequence.")
         }
     }
 
@@ -440,13 +454,12 @@ impl<'src> Compiler<'src> {
     fn synchronise(&mut self) {
         self.panic_mode = false;
         while self.current.kind != TokenKind::Eof {
-            if self.previous.kind == TokenKind::Semicolon || self.current.kind == TokenKind::Hyphen
+            if self.previous.kind == TokenKind::Semicolon || self.current.kind == TokenKind::Number
             {
                 return;
             }
             match self.current.kind {
-                TokenKind::Var
-                | TokenKind::If
+                TokenKind::If
                 | TokenKind::While
                 | TokenKind::Print
                 | TokenKind::Recipe
@@ -653,13 +666,13 @@ impl<'src> Compiler<'src> {
                     self.advance();
                     continue;
                 }
-                TokenKind::Hyphen => {
+                TokenKind::Number => {
                     if order == ArgumentPosition::Middle {
                         self.error_at_current("function argument list should terminate with 'and' before final argument.");
                     }
                     break;
                 }
-                _ => self.error_at_current("Invalid termination of function invocation."),
+                _ => break,
             }
         }
         Some(argument_count)
@@ -673,7 +686,7 @@ impl<'src> Compiler<'src> {
 
 struct CompilerContext<'src> {
     enclosing: Option<Box<CompilerContext<'src>>>,
-    scope_depth: u8,
+    scope_ordering: Vec<u8>,
     locals: [&'src str; LOCALS_MAX_COUNT],
     locals_count: usize,
 }
@@ -684,7 +697,7 @@ impl<'src> CompilerContext<'src> {
             enclosing: None,
             locals: [""; LOCALS_MAX_COUNT],
             locals_count: 0,
-            scope_depth: 0,
+            scope_ordering: vec![1],
         }
     }
 

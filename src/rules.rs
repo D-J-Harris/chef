@@ -235,11 +235,6 @@ impl Precedence {
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },
-            TokenKind::Var => ParseRule {
-                prefix: ParseFunctionKind::None,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
-            },
             TokenKind::While => ParseRule {
                 prefix: ParseFunctionKind::Grouping,
                 infix: ParseFunctionKind::None,

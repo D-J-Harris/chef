@@ -21,6 +21,9 @@
       "include": "#entity"
     },
     {
+      "include": "#markup"
+    },
+    {
       "include": "#variable"
     }
   ],
@@ -74,13 +77,13 @@
         {
           "name": "entity.name.function.chef",
           "match": "\\b(with|now|whisk|bake|cook)\\b"
-        },
+        }
+      ]
+    },
+    "markup": {
+      "patterns": [
         {
-          "name": "entity.name.tag.chef",
-          "match": "\\b(Recipe|Ingredients|Utensils|Steps)\\b"
-        },
-        {
-          "name": "entity.name.tag.chef",
+          "name": "markup.heading.chef",
           "match": "\\b(Recipe|Ingredients|Utensils|Steps)\\b"
         }
       ]
