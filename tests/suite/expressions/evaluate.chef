@@ -1,0 +1,6 @@
+Recipe
+// Expression evaluation
+
+Steps
+    1. taste (5 minus (3 minus 1)) add minus 1 // expect: 2
+    2. end

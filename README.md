@@ -11,15 +11,6 @@ The language was created following completion of Part III of the book [Crafting 
 - Function support and basic control flow including if-statements and while-loops ([grammar here](./GRAMMAR.md))
 - Syntax highlighting is provided by the VSCode extension `chef-colouring` ([source here](./colouring/))
 
-  // "markup": {
-  // "patterns": [
-  // {
-  // "name": "markup.heading.chef",
-  // "match": "\\b(Recipe|Ingredients|Utensils|Steps)\\b"
-  // }
-  // ]
-  // },
-
 ## Usage
 
 To build local, clone this repository and build with

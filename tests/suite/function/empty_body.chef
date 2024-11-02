@@ -1,0 +1,8 @@
+Recipe
+
+Utensils
+whisk
+
+Steps
+    1. taste whisk now  // expect: nil
+    2. end

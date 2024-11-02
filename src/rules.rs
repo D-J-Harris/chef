@@ -100,7 +100,7 @@ impl Precedence {
                 infix: ParseFunctionKind::Binary,
                 precedence: Precedence::Term,
             },
-            TokenKind::Dot => ParseRule {
+            TokenKind::Step => ParseRule {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
@@ -240,17 +240,17 @@ impl Precedence {
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },
-            TokenKind::Ingredients => ParseRule {
+            TokenKind::IngredientsHeader => ParseRule {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },
-            TokenKind::Utensils => ParseRule {
+            TokenKind::UtensilsHeader => ParseRule {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },
-            TokenKind::Steps => ParseRule {
+            TokenKind::StepsHeader => ParseRule {
                 prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,

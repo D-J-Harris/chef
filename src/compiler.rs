@@ -67,7 +67,7 @@ impl<'src> Compiler<'src> {
         self.parse_ingredients();
         self.parse_utensils();
         self.consume(
-            TokenKind::Steps,
+            TokenKind::StepsHeader,
             "Expect 'Recipe' to contain 'Steps' section",
         );
         self.block();
@@ -87,12 +87,13 @@ impl<'src> Compiler<'src> {
     }
 
     fn parse_ingredients(&mut self) {
-        if !self.r#match(TokenKind::Ingredients) {
+        if !self.r#match(TokenKind::IngredientsHeader) {
             return;
         }
         while !self.is_end_ingredients() {
             if !self.check(TokenKind::Var) {
                 self.error_at_current("Expect ingredient name.");
+                self.synchronise();
                 break;
             }
             self.var_declaration();
@@ -100,12 +101,13 @@ impl<'src> Compiler<'src> {
     }
 
     fn parse_utensils(&mut self) {
-        if !self.r#match(TokenKind::Utensils) {
+        if !self.r#match(TokenKind::UtensilsHeader) {
             return;
         }
         while !self.is_end_utensils() {
             if !self.check(TokenKind::FunIdent) {
                 self.error_at_current("Expect utensil name.");
+                self.synchronise();
                 break;
             }
             self.fun_declaration();
@@ -113,13 +115,13 @@ impl<'src> Compiler<'src> {
     }
 
     fn is_end_ingredients(&self) -> bool {
-        self.check(TokenKind::Utensils)
-            || self.check(TokenKind::Steps)
+        self.check(TokenKind::UtensilsHeader)
+            || self.check(TokenKind::StepsHeader)
             || self.check(TokenKind::Eof)
     }
 
     fn is_end_utensils(&self) -> bool {
-        self.check(TokenKind::Steps) || self.check(TokenKind::Eof)
+        self.check(TokenKind::StepsHeader) || self.check(TokenKind::Eof)
     }
 
     fn r#match(&mut self, token_kind: TokenKind) -> bool {
@@ -173,7 +175,7 @@ impl<'src> Compiler<'src> {
                         self.advance();
                         continue;
                     }
-                    TokenKind::Number => {
+                    TokenKind::Step => {
                         if order == ArgumentPosition::Middle {
                             self.error("Function parameters should be a list where the final element is preceded by 'and'");
                         }
@@ -245,18 +247,8 @@ impl<'src> Compiler<'src> {
         Ok(())
     }
 
-    fn statement(&mut self) -> bool {
-        let current_step = self.context.scope_ordering.last_mut().unwrap();
-        if self.current.lexeme != current_step.to_string() {
-            self.error_at_current("Expect instruction numbers to increase starting from '1'.");
-            return true;
-        }
-        *current_step += 1;
-        self.advance();
-        self.consume(TokenKind::Dot, "Expect '.' after instruction number");
-        if self.r#match(TokenKind::RightBrace) {
-            return true;
-        } else if self.r#match(TokenKind::Print) {
+    fn statement(&mut self) {
+        if self.r#match(TokenKind::Print) {
             self.print_statement();
         } else if self.r#match(TokenKind::If) {
             self.if_statement();
@@ -267,7 +259,6 @@ impl<'src> Compiler<'src> {
         } else {
             self.expression_statement();
         }
-        false
     }
 
     fn begin_scope(&mut self) {
@@ -279,18 +270,31 @@ impl<'src> Compiler<'src> {
     }
 
     fn block(&mut self) {
-        if !self.check(TokenKind::Number) {
-            self.error_at_current("Expect instructions to begin with step number '1.'.");
+        if !self.r#match(TokenKind::Step) {
+            self.end_scope();
+            return;
         }
-        while self.check(TokenKind::Number) {
-            let done = self.statement();
+        loop {
+            let current_step = self.context.scope_ordering.last_mut().unwrap();
+            if self.previous.lexeme != format!("{current_step}.") {
+                self.error_at_current(
+                    "Expect instruction numbers to increase, starting from '1.'.",
+                );
+                break;
+            }
+            *current_step += 1;
+            if self.r#match(TokenKind::RightBrace) {
+                break;
+            }
+            self.statement();
             if self.panic_mode {
                 self.synchronise();
             }
-            if done {
+            if !self.r#match(TokenKind::Step) {
                 break;
             }
         }
+        self.end_scope();
     }
 
     fn print_statement(&mut self) {
@@ -305,14 +309,12 @@ impl<'src> Compiler<'src> {
         self.emit(Opcode::Pop as u8);
         self.begin_scope();
         self.block();
-        self.end_scope();
         let else_jump = self.emit_jump(Opcode::Jump as u8);
         self.patch_jump(then_jump);
         self.emit(Opcode::Pop as u8);
         if self.r#match(TokenKind::Else) {
             self.begin_scope();
             self.block();
-            self.end_scope();
         }
         self.patch_jump(else_jump);
     }
@@ -352,7 +354,6 @@ impl<'src> Compiler<'src> {
         self.emit(Opcode::Pop as u8);
         self.begin_scope();
         self.block();
-        self.end_scope();
         self.emit_loop(loop_start);
 
         self.patch_jump(exit_jump);
@@ -397,8 +398,8 @@ impl<'src> Compiler<'src> {
     }
 
     fn check_end_step(&mut self) {
-        if self.current.kind != TokenKind::Number {
-            self.error_at_current("Expect next instruction in the sequence.")
+        if self.current.kind != TokenKind::Step {
+            self.error_at_current("Expect next or final instruction in the sequence.")
         }
     }
 
@@ -435,7 +436,7 @@ impl<'src> Compiler<'src> {
         eprint!("[line {}] Error", token.line);
 
         match token.kind {
-            TokenKind::Eof => eprint!(" at end"),
+            TokenKind::Eof => eprint!(" at end of file"),
             TokenKind::Error => (),
             _ => eprint!(" at '{}'", token.lexeme),
         }
@@ -451,21 +452,17 @@ impl<'src> Compiler<'src> {
     fn synchronise(&mut self) {
         self.panic_mode = false;
         while self.current.kind != TokenKind::Eof {
-            if self.current.kind == TokenKind::Number {
-                return;
-            }
             match self.current.kind {
-                TokenKind::If
-                | TokenKind::While
-                | TokenKind::Print
-                | TokenKind::Recipe
-                | TokenKind::Ingredients
-                | TokenKind::Utensils
-                | TokenKind::Steps
-                | TokenKind::Return => return,
-                _ => (),
+                TokenKind::If | TokenKind::While | TokenKind::Print | TokenKind::Return => {
+                    self.advance();
+                    return;
+                }
+                TokenKind::IngredientsHeader
+                | TokenKind::UtensilsHeader
+                | TokenKind::StepsHeader
+                | TokenKind::Step => return,
+                _ => self.advance(),
             }
-            self.advance();
         }
     }
 
@@ -477,12 +474,21 @@ impl<'src> Compiler<'src> {
             }
             false => false,
         };
-        self.advance();
-        let prefix_rule = Precedence::get_rule(self.previous.kind).prefix;
+        let prefix_rule = Precedence::get_rule(self.current.kind).prefix;
         if prefix_rule == ParseFunctionKind::None {
-            self.error("Expect expression.");
+            match self.current.kind {
+                TokenKind::IngredientsHeader
+                | TokenKind::UtensilsHeader
+                | TokenKind::StepsHeader
+                | TokenKind::Eof => self.error_at_current("Expect 'end' step."),
+                _ => {
+                    self.error_at_current("Expect expression.");
+                    self.advance();
+                }
+            }
             return;
         };
+        self.advance();
         self.execute_rule(prefix_rule, can_assign);
         while precedence <= Precedence::get_rule(self.current.kind).precedence {
             let can_assign = self.previous.kind == TokenKind::Var && Self::can_assign(precedence);
@@ -669,7 +675,7 @@ impl<'src> Compiler<'src> {
                     self.advance();
                     continue;
                 }
-                TokenKind::Number => {
+                TokenKind::Step => {
                     if order == ArgumentPosition::Middle {
                         self.error_at_current("function argument list should terminate with 'and' before final argument.");
                     }

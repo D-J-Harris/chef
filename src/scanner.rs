@@ -36,9 +36,9 @@ impl<'src> Scanner<'src> {
         identifiers.insert("while", TokenKind::While);
         identifiers.insert("end", TokenKind::RightBrace);
         identifiers.insert("Recipe", TokenKind::Recipe);
-        identifiers.insert("Ingredients", TokenKind::Ingredients);
-        identifiers.insert("Utensils", TokenKind::Utensils);
-        identifiers.insert("Steps", TokenKind::Steps);
+        identifiers.insert("Ingredients", TokenKind::IngredientsHeader);
+        identifiers.insert("Utensils", TokenKind::UtensilsHeader);
+        identifiers.insert("Steps", TokenKind::StepsHeader);
 
         identifiers.insert("x", TokenKind::ParameterIdent);
         identifiers.insert("y", TokenKind::ParameterIdent);
@@ -84,7 +84,6 @@ impl<'src> Scanner<'src> {
         let byte = self.advance();
         match byte {
             b',' => self.make_token(TokenKind::Comma),
-            b'.' => self.make_token(TokenKind::Dot),
             b'(' => self.make_token(TokenKind::LeftParen),
             b')' => self.make_token(TokenKind::RightParen),
             b'"' => self.make_string_token(),
@@ -148,10 +147,15 @@ impl<'src> Scanner<'src> {
         let Some(next) = self.peek_next() else {
             return self.make_token(TokenKind::Number);
         };
-        if self.peek() == b'.' && next.is_ascii_digit() {
-            self.current += 1;
-            while self.peek().is_ascii_digit() {
-                self.current += 1
+        if self.peek() == b'.' {
+            if next.is_ascii_digit() {
+                self.current += 1;
+                while self.peek().is_ascii_digit() {
+                    self.current += 1
+                }
+            } else {
+                self.current += 1;
+                return self.make_token(TokenKind::Step);
             }
         }
         self.make_token(TokenKind::Number)
@@ -204,7 +208,6 @@ pub enum TokenKind {
     Comma,
     Minus,
     Plus,
-    Dot,
     Slash,
     Star,
     // One or two character tokens.
@@ -233,11 +236,12 @@ pub enum TokenKind {
     Return,
     True,
     While,
+    Step,
     ParameterAnd,
     Recipe,
-    Ingredients,
-    Utensils,
-    Steps,
+    IngredientsHeader,
+    UtensilsHeader,
+    StepsHeader,
     BareFunctionInvocation,
     // Other.
     Error,
