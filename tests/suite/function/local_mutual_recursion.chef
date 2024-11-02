@@ -1,0 +1,21 @@
+Recipe
+// [line 9] Error at 'bake': Undefined variable.
+
+Utensils
+whisk with x
+    1. check x is 0
+        1. serve true
+        2. end 
+    2. serve bake with x minus 1
+    3. end
+
+bake with x
+    1. check x is 0
+        1. serve false
+        2. end
+    2. serve whisk with x minus 1
+    3. end
+
+Steps
+    1. whisk with 4
+    2. end

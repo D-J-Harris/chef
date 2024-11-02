@@ -1,0 +1,11 @@
+Recipe
+
+Utensils
+whisk with x and y
+    1. taste x
+    2. taste y
+    3. end
+
+Steps
+    1. whisk with 2, 3 and 4  // expect runtime error: Expected 2 arguments but got 3.
+    2. end

@@ -248,7 +248,9 @@ impl<'src> Compiler<'src> {
     }
 
     fn statement(&mut self) {
-        if self.r#match(TokenKind::Print) {
+        if self.check(TokenKind::Step) {
+            self.error("Empty instruction.");
+        } else if self.r#match(TokenKind::Print) {
             self.print_statement();
         } else if self.r#match(TokenKind::If) {
             self.if_statement();
@@ -277,9 +279,7 @@ impl<'src> Compiler<'src> {
         loop {
             let current_step = self.context.scope_ordering.last_mut().unwrap();
             if self.previous.lexeme != format!("{current_step}.") {
-                self.error_at_current(
-                    "Expect instruction numbers to increase, starting from '1.'.",
-                );
+                self.error("Expect instruction numbers to increase, starting from '1.'.");
                 break;
             }
             *current_step += 1;
@@ -719,6 +719,6 @@ impl<'src> CompilerContext<'src> {
         if let Some(parent_compiler) = self.enclosing.as_deref_mut() {
             return parent_compiler.resolve_local(token_name, depth + 1);
         }
-        Err("Ingredient or utensil name not defined.")
+        Err("Undefined variable.")
     }
 }
