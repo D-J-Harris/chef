@@ -1,0 +1,25 @@
+Recipe
+// Tests for precedence
+
+Steps
+    // * has higher precedence than +.
+    1. taste 2 add 3 multiply 4 // expect: 14
+
+    // * has higher precedence than -.
+    2. taste 20 minus 3 multiply 4 // expect: 8
+
+    // / has higher precedence than +.
+    3. taste 2 add 6 split 3 // expect: 4
+
+    // / has higher precedence than -.
+    4. taste 2 minus 6 split 3 // expect: 0
+
+    // < has higher precedence than ==.
+    5. taste false is 2 below 1 // expect: true
+
+    // > has higher precedence than ==.
+    6. taste false is 1 above 2 // expect: true
+
+    // Using () for grouping.
+    7. taste (2 multiply (6 minus (2 add 2))) // expect: 4
+    8. end

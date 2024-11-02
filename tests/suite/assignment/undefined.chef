@@ -1,0 +1,7 @@
+Recipe
+// Unknown variables
+// [line 6] Error at 'chocolate': Ingredient or utensil name not defined.
+
+Steps
+    1. set chocolate to "what"
+    2. end

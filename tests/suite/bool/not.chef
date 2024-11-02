@@ -1,0 +1,8 @@
+Recipe
+// Tests for not operator
+
+Steps
+    1. taste not true      // expect: false
+    2. taste not false     // expect: true
+    3. taste not not true  // expect: true
+    4. end

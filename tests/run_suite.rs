@@ -19,7 +19,7 @@ struct Expected {
     runtime_err: Option<RuntimeError>,
 }
 
-#[test_resources("tests/suite/*/*.lox")]
+#[test_resources("tests/suite/**/*.chef")]
 fn run_file_test(filename: &str) {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push(filename);

@@ -1,8 +1,8 @@
 # `chef`
 
-![Icon](./colouring/assets/icon_256x256.png "chef icon")
-
-### Chef is a stack-based single-scope language designed to read like a recipe
+<p align="center"><img src="./icon_128x128.png"></p>
+<h2 align="center"><em>Chef is a stack-based single-frame language designed to read like a recipe</em></h2>
+</br>
 
 The language was created following completion of Part III of the book [Crafting Interpreters](https://craftinginterpreters.com/), porting the C bytecode interpreter into Rust (the implementation of Lox, with classes, closures etc. can be found on the [lox](https://github.com/D-J-Harris/chef/tree/lox) branch)
 
@@ -11,14 +11,14 @@ The language was created following completion of Part III of the book [Crafting 
 - Function support and basic control flow including if-statements and while-loops ([grammar here](./GRAMMAR.md))
 - Syntax highlighting is provided by the VSCode extension `chef-colouring` ([source here](./colouring/))
 
-    // "markup": {
-    //   "patterns": [
-    //     {
-    //       "name": "markup.heading.chef",
-    //       "match": "\\b(Recipe|Ingredients|Utensils|Steps)\\b"
-    //     }
-    //   ]
-    // },
+  // "markup": {
+  // "patterns": [
+  // {
+  // "name": "markup.heading.chef",
+  // "match": "\\b(Recipe|Ingredients|Utensils|Steps)\\b"
+  // }
+  // ]
+  // },
 
 ## Usage
 

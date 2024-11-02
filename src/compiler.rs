@@ -146,7 +146,7 @@ impl<'src> Compiler<'src> {
         let function_name = self.previous.lexeme;
         let mut function_arity = 0;
 
-        if self.check(TokenKind::LeftParen) {
+        if self.check(TokenKind::With) {
             self.advance();
             let mut order = ArgumentPosition::First;
             loop {
@@ -264,8 +264,6 @@ impl<'src> Compiler<'src> {
             self.return_statement();
         } else if self.r#match(TokenKind::While) {
             self.while_statement();
-        } else if self.r#match(TokenKind::Var) {
-            self.expression_statement()
         } else {
             self.expression_statement();
         }
@@ -284,7 +282,7 @@ impl<'src> Compiler<'src> {
         if !self.check(TokenKind::Number) {
             self.error_at_current("Expect instructions to begin with step number '1.'.");
         }
-        while self.check(TokenKind::Eof) || self.check(TokenKind::Number) {
+        while self.check(TokenKind::Number) {
             let done = self.statement();
             if self.panic_mode {
                 self.synchronise();
@@ -472,7 +470,13 @@ impl<'src> Compiler<'src> {
     }
 
     pub fn parse_precedence(&mut self, precedence: Precedence) {
-        let can_assign = self.previous.kind == TokenKind::Var && Self::can_assign(precedence);
+        let can_assign = match self.current.kind == TokenKind::Var {
+            true => {
+                self.advance();
+                Self::can_assign(precedence)
+            }
+            false => false,
+        };
         self.advance();
         let prefix_rule = Precedence::get_rule(self.previous.kind).prefix;
         if prefix_rule == ParseFunctionKind::None {
@@ -517,7 +521,14 @@ impl<'src> Compiler<'src> {
     }
 
     fn grouping(&mut self) {
+        let is_left_parent = self.previous.kind == TokenKind::LeftParen;
         self.expression();
+        if is_left_parent {
+            self.consume(
+                TokenKind::RightParen,
+                "Expect ')' after grouping expression.",
+            );
+        }
     }
 
     fn unary(&mut self) {
@@ -702,6 +713,6 @@ impl<'src> CompilerContext<'src> {
         if let Some(parent_compiler) = self.enclosing.as_deref_mut() {
             return parent_compiler.resolve_local(token_name, depth + 1);
         }
-        Err("Name not defined in local scope.")
+        Err("Ingredient or utensil name not defined.")
     }
 }

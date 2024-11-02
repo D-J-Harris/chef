@@ -15,7 +15,7 @@ pub enum Precedence {
     Primary,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ParseFunctionKind {
     None,
     Grouping,
@@ -55,10 +55,20 @@ impl Precedence {
 
     pub fn get_rule(token_kind: TokenKind) -> ParseRule {
         match token_kind {
-            TokenKind::LeftParen => ParseRule {
+            TokenKind::With => ParseRule {
                 prefix: ParseFunctionKind::Grouping,
                 infix: ParseFunctionKind::Call,
                 precedence: Precedence::Call,
+            },
+            TokenKind::LeftParen => ParseRule {
+                prefix: ParseFunctionKind::Grouping,
+                infix: ParseFunctionKind::None,
+                precedence: Precedence::None,
+            },
+            TokenKind::RightParen => ParseRule {
+                prefix: ParseFunctionKind::None,
+                infix: ParseFunctionKind::None,
+                precedence: Precedence::None,
             },
             TokenKind::BareFunctionInvocation => ParseRule {
                 prefix: ParseFunctionKind::None,
@@ -182,11 +192,6 @@ impl Precedence {
             },
             TokenKind::If => ParseRule {
                 prefix: ParseFunctionKind::Grouping,
-                infix: ParseFunctionKind::None,
-                precedence: Precedence::None,
-            },
-            TokenKind::Go => ParseRule {
-                prefix: ParseFunctionKind::None,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },

@@ -1,0 +1,28 @@
+Recipe
+// Tests for equality
+
+Steps
+    1. taste true is true        // expect: true
+    2. taste true is false       // expect: false
+    3. taste false is true       // expect: false
+    4. taste false is false      // expect: true
+
+    // Not equal to other types.
+    5. taste true is 1           // expect: false
+    6. taste false is 0          // expect: false
+    7. taste true is "true"      // expect: false
+    8. taste false is "false"    // expect: false
+    9. taste false is ""         // expect: false
+    
+    10. taste true isnt true     // expect: false
+    11. taste true isnt false    // expect: true
+    12. taste false isnt true    // expect: true
+    13. taste false isnt false   // expect: false
+
+    // Not equal to other types.
+    14. taste true isnt 1        // expect: true
+    15. taste false isnt 0       // expect: true
+    16. taste true isnt "true"   // expect: true
+    17. taste false isnt "false" // expect: true
+    18. taste false isnt ""      // expect: true
+    19. end

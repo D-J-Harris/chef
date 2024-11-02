@@ -1,0 +1,11 @@
+Recipe
+// Assignment on RHS of variable
+
+Ingredients
+set chocolate to "before"
+set banana to (set chocolate to "var")
+
+Steps
+    1. taste chocolate // expect: var
+    2. taste banana    // expect: var
+    3. end

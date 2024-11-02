@@ -1,0 +1,7 @@
+Recipe
+// Tests for comments
+
+Steps
+    1. taste "ok"  // expect: ok
+    2. end
+// comment

@@ -1,0 +1,13 @@
+Recipe
+// Test for variable assignment
+
+Ingredients
+set chocolate to "before"
+
+Steps
+    1. taste chocolate                // expect: before
+    2. set chocolate to "after"
+    3. taste chocolate                // expect: after
+    4. taste (set chocolate to "arg") // expect: arg
+    5. taste chocolate                // expect: arg
+    6. end

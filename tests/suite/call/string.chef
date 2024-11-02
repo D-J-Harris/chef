@@ -1,0 +1,6 @@
+Recipe
+// Tests for calling
+
+Steps
+    1. "str" now  // expect runtime error: Can only call functions.
+    2. end

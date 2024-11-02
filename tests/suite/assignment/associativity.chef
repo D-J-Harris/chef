@@ -1,0 +1,14 @@
+Recipe
+// Assignment is right-associative.
+
+Ingredients
+set chocolate to "a"
+set banana to "b"
+set sugar to "c"
+
+Steps
+    1. set chocolate to (set banana to sugar)
+    2. taste chocolate // expect: c
+    3. taste banana    // expect: c
+    4. taste sugar     // expect: c
+    5. end

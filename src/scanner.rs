@@ -16,11 +16,11 @@ impl<'src> Scanner<'src> {
         identifiers.insert("now", TokenKind::BareFunctionInvocation);
         identifiers.insert("minus", TokenKind::Minus);
         identifiers.insert("check", TokenKind::If);
-        identifiers.insert("with", TokenKind::LeftParen);
+        identifiers.insert("with", TokenKind::With);
         identifiers.insert("not", TokenKind::Bang);
         identifiers.insert("isnt", TokenKind::BangEqual);
         identifiers.insert("split", TokenKind::Slash);
-        identifiers.insert("combine", TokenKind::Star);
+        identifiers.insert("multiply", TokenKind::Star);
         identifiers.insert("above", TokenKind::Greater);
         identifiers.insert("below", TokenKind::Less);
         identifiers.insert("otherwise", TokenKind::Else);
@@ -85,10 +85,12 @@ impl<'src> Scanner<'src> {
         match byte {
             b',' => self.make_token(TokenKind::Comma),
             b'.' => self.make_token(TokenKind::Dot),
+            b'(' => self.make_token(TokenKind::LeftParen),
+            b')' => self.make_token(TokenKind::RightParen),
             b'"' => self.make_string_token(),
             b if b.is_ascii_digit() => self.make_number_token(),
             b if is_alpha(b) => self.make_identifier_token(),
-            _ => self.make_error_token("Invalid character."),
+            _ => self.make_error_token("Unexpected character."),
         }
     }
 
@@ -197,6 +199,7 @@ fn is_alpha(byte: u8) -> bool {
 pub enum TokenKind {
     // Single-character tokens.
     LeftParen,
+    RightParen,
     RightBrace,
     Comma,
     Minus,
@@ -221,7 +224,7 @@ pub enum TokenKind {
     And,
     Else,
     False,
-    Go,
+    With,
     If,
     Nil,
     Or,

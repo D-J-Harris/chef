@@ -1,3 +1,4 @@
+Recipe
 // Unicode characters are allowed in comments.
 //
 // Latin 1 Supplement: £§¶ÜÞ
@@ -6,4 +7,6 @@
 // Other stuff: ឃᢆ᯽₪ℜ↩⊗┺░
 // Emoji: ☃☺♣
 
-print "ok"; // expect: ok
+Steps
+    1. taste "ok"  // expect: ok
+    2. end

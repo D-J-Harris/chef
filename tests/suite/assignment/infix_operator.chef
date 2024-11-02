@@ -1,0 +1,10 @@
+Recipe
+// Test for assignment targets
+
+Ingredients
+set chocolate to "a"
+set banana to "b"
+
+Steps
+    1. set chocolate add banana to "value" // Error at 'to': Invalid assignment target.
+    2. end
