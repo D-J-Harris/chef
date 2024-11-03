@@ -1,0 +1,11 @@
+Recipe
+// [line 10] Error at '3.': Expect instruction to start from '1.'
+// [line 11] Error at '4.': Expect instruction numbers to increase.
+
+Steps
+    1. check true
+        1. taste "good"
+        2. end
+    2. otherwise
+    3. taste "good"
+    4. end

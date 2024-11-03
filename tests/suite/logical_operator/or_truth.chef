@@ -1,0 +1,13 @@
+Recipe
+
+Steps
+    // False and nil are false.
+    1. taste false or "ok"         // expect: ok
+    2. taste nil or "ok"           // expect: ok
+
+    // Everything else is true.
+    3. taste true or "ok"          // expect: true
+    4. taste 0 or "ok"             // expect: 0
+    5. taste "s" or "ok"           // expect: s
+    6. end
+

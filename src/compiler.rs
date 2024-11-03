@@ -294,14 +294,25 @@ impl<'src> Compiler<'src> {
             self.end_scope();
             return;
         }
+        if self.previous.lexeme != format!("1.") {
+            self.error("Expect instruction to start from '1.'");
+            self.advance();
+            return;
+        }
         let mut end_found = false;
         loop {
             let current_step = self.context.scope_ordering.last_mut().unwrap();
             if self.previous.lexeme != format!("{current_step}.") {
-                self.error("Expect instruction numbers to increase, starting from '1.'.");
+                self.error("Expect instruction numbers to increase.");
                 break;
             }
-            *current_step += 1;
+            match current_step.checked_add(1) {
+                Some(n) => *current_step = n,
+                None => {
+                    self.error("Too many steps.");
+                    break;
+                }
+            };
             if self.r#match(TokenKind::RightBrace) {
                 if let Some(else_jump) = self.context.active_else {
                     self.patch_jump(else_jump);
@@ -318,7 +329,7 @@ impl<'src> Compiler<'src> {
             }
         }
         if !end_found {
-            self.error_at_current("Instructions must end with 'end' instruction.");
+            self.error_at_current("Instructions must terminate with 'end'.");
         }
         self.end_scope();
     }
@@ -725,7 +736,7 @@ impl<'src> Compiler<'src> {
 
 struct CompilerContext<'src> {
     enclosing: Option<Box<CompilerContext<'src>>>,
-    scope_ordering: Vec<u8>,
+    scope_ordering: Vec<u16>,
     locals: [&'src str; LOCALS_MAX_COUNT],
     locals_count: usize,
     active_else: Option<usize>,

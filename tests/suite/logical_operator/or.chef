@@ -1,0 +1,22 @@
+Recipe
+// Note: These tests implicitly depend on ints being truthy.
+
+Ingredients
+set chocolate to "before"
+set banana to "before"
+
+Steps
+    // Return the first true argument.
+    1. taste 1 or true                // expect: 1
+    2. taste false or 1               // expect: 1
+    3. taste false or false or true   // expect: true
+
+    // Return the last argument if all are false.
+    4. taste false or false           // expect: false
+    5. taste false or false or false  // expect: false
+
+    // Short-circuit at the first true argument.
+    6. (set chocolate to false) or (set banana to true) or (set chocolate to "bad")
+    7. taste chocolate                // expect: false
+    8. taste banana                   // expect: true
+    9. end
