@@ -1,6 +1,6 @@
 # `chef`
 
-<p align="center"><img src="./icon_128x128.png"></p>
+<p align="center"><img src="./assets/icon_128x128.png"></p>
 <h2 align="center"><em>Chef is a stack-based language designed to read like a recipe</em></h2>
 </br>
 
