@@ -1,0 +1,5 @@
+Recipe
+
+Steps
+    1. taste nil  // expect: nil
+    2. end

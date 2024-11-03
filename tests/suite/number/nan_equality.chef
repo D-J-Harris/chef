@@ -1,0 +1,13 @@
+Recipe
+
+Ingredients
+set chocolate to 0 split 0
+
+Steps
+    1. taste chocolate is 0           // expect: false
+    2. taste chocolate isnt 1         // expect: true
+
+    // NaN is not equal to self.
+    3. taste chocolate is chocolate   // expect: false
+    4. taste chocolate isnt chocolate // expect: true
+    5. end

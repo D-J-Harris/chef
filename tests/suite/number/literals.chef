@@ -1,0 +1,10 @@
+Recipe
+
+Steps
+    1. taste 123     // expect: 123
+    2. taste 987654  // expect: 987654
+    3. taste 0       // expect: 0
+    4. taste minus 0      // expect: -0
+    5. taste 123.456 // expect: 123.456
+    6. taste minus 0.001  // expect: -0.001
+    7. end

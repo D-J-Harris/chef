@@ -1,0 +1,7 @@
+Recipe
+// [line 6] Error at '1.': Empty instruction.
+// [line 6] Error at '123.': Expect instruction numbers to increase.
+
+Steps
+    1. 123.
+    2. end
