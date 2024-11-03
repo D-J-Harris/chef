@@ -263,7 +263,6 @@ impl<'src> Compiler<'src> {
                 }
             };
         }
-
         if self.check(TokenKind::Step) {
             self.error("Empty instruction.");
         } else if self.r#match(TokenKind::Print) {
@@ -294,7 +293,7 @@ impl<'src> Compiler<'src> {
             self.end_scope();
             return;
         }
-        if self.previous.lexeme != format!("1.") {
+        if self.previous.lexeme != "1.".to_string() {
             self.error("Expect instruction to start from '1.'");
             self.advance();
             return;
