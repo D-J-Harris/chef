@@ -1,0 +1,18 @@
+Recipe
+
+Ingredients
+set chocolate to false
+
+Steps
+    // Evaluate the 'then' expression if the condition is true.
+    1. check true   
+        1. taste "good"  // expect: good
+        2. end
+    2. check false
+        1. taste "bad"
+        2. end
+    // Assignment in if condition.
+    3. check (set chocolate to true)
+        1. taste chocolate  // expect: true
+        2. end
+    4. end

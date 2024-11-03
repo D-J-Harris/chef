@@ -1,0 +1,10 @@
+Recipe
+// [line 8] Error at 'whisk': Undefined variable.
+
+Steps
+    1. check true
+        1. end
+    2. otherwise
+        1. whisk
+        2. end
+    3. end

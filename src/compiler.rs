@@ -303,6 +303,9 @@ impl<'src> Compiler<'src> {
             }
             *current_step += 1;
             if self.r#match(TokenKind::RightBrace) {
+                if let Some(else_jump) = self.context.active_else {
+                    self.patch_jump(else_jump);
+                }
                 end_found = true;
                 break;
             }
