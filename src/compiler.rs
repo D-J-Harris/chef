@@ -249,6 +249,21 @@ impl<'src> Compiler<'src> {
     }
 
     fn statement(&mut self) {
+        if let Some(else_jump) = self.context.active_else {
+            match self.r#match(TokenKind::Else) {
+                true => {
+                    self.else_statement();
+                    self.patch_jump(else_jump);
+                    self.context.active_else = None;
+                    return;
+                }
+                false => {
+                    self.patch_jump(else_jump);
+                    self.context.active_else = None;
+                }
+            };
+        }
+
         if self.check(TokenKind::Step) {
             self.error("Empty instruction.");
         } else if self.r#match(TokenKind::Print) {
@@ -259,6 +274,8 @@ impl<'src> Compiler<'src> {
             self.return_statement();
         } else if self.r#match(TokenKind::While) {
             self.while_statement();
+        } else if self.r#match(TokenKind::Else) {
+            self.error("'otherwise' clause without a matching 'check' clause.");
         } else {
             self.expression_statement();
         }
@@ -277,6 +294,7 @@ impl<'src> Compiler<'src> {
             self.end_scope();
             return;
         }
+        let mut end_found = false;
         loop {
             let current_step = self.context.scope_ordering.last_mut().unwrap();
             if self.previous.lexeme != format!("{current_step}.") {
@@ -285,6 +303,7 @@ impl<'src> Compiler<'src> {
             }
             *current_step += 1;
             if self.r#match(TokenKind::RightBrace) {
+                end_found = true;
                 break;
             }
             self.statement();
@@ -294,6 +313,9 @@ impl<'src> Compiler<'src> {
             if !self.r#match(TokenKind::Step) {
                 break;
             }
+        }
+        if !end_found {
+            self.error_at_current("Instructions must end with 'end' instruction.");
         }
         self.end_scope();
     }
@@ -313,11 +335,12 @@ impl<'src> Compiler<'src> {
         let else_jump = self.emit_jump(Opcode::Jump as u8);
         self.patch_jump(then_jump);
         self.emit(Opcode::Pop as u8);
-        if self.r#match(TokenKind::Else) {
-            self.begin_scope();
-            self.block();
-        }
-        self.patch_jump(else_jump);
+        self.context.active_else = Some(else_jump);
+    }
+
+    fn else_statement(&mut self) {
+        self.begin_scope();
+        self.block();
     }
 
     fn return_statement(&mut self) {
@@ -702,6 +725,7 @@ struct CompilerContext<'src> {
     scope_ordering: Vec<u8>,
     locals: [&'src str; LOCALS_MAX_COUNT],
     locals_count: usize,
+    active_else: Option<usize>,
 }
 
 impl<'src> CompilerContext<'src> {
@@ -711,6 +735,7 @@ impl<'src> CompilerContext<'src> {
             locals: [""; LOCALS_MAX_COUNT],
             locals_count: 0,
             scope_ordering: vec![1],
+            active_else: None,
         }
     }
 

@@ -3,10 +3,14 @@ Recipe
 Steps
     1. check true
         1. taste "good"  // expect: good
-        otherwise
+        2. end
+    2. otherwise
         1. taste "bad"
-    2. check false
+        2. end
+    3. check false
         1. taste "bad"
-        otherwise
+        2. end
+    4. otherwise
         1. taste "good"  // expect: good
-    3. end
+        2. end
+    5. end
