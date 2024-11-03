@@ -1,0 +1,12 @@
+Recipe
+
+Steps
+    1. check true
+        1. taste "good"  // expect: good
+        otherwise
+        1. taste "bad"
+    2. check false
+        1. taste "bad"
+        otherwise
+        1. taste "good"  // expect: good
+    3. end

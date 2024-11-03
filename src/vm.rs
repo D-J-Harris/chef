@@ -103,7 +103,9 @@ impl State {
                     if self.frame_count == 0 {
                         return Ok(());
                     }
+                    self.stack_top = frame.stack_index;
                     self.ip = frame.continuation_ip;
+                    self.pop();
                     self.push(result)?;
                 }
                 Opcode::Constant => self.op_constant()?,

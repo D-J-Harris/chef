@@ -1,10 +1,10 @@
 Recipe
-// [line 12] Error at 'whisk': Undefined variable.
+// [line 7] Error at 'whisk': Undefined variable.
 
 Utensils
 whisk with x
     1. check x below 2
-        1. serve whisk with x minus 1 add whisk with x minus 2
+        1. serve (whisk with x minus 1) add (whisk with x minus 2)
         2. end 
     2. end
 

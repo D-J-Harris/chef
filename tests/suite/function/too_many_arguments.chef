@@ -1,0 +1,24 @@
+Recipe
+// [line 23] Error at 'chocolate': Can't have more than 10 arguments.
+
+Ingredients
+set chocolate
+
+Utensils
+
+whisk
+
+Steps
+   1. whisk with 
+     chocolate, // 1
+     chocolate, // 2
+     chocolate, // 3
+     chocolate, // 4
+     chocolate, // 5
+     chocolate, // 6
+     chocolate, // 7
+     chocolate, // 8
+     chocolate, // 9
+     chocolate  // 10
+     and chocolate
+  2. end

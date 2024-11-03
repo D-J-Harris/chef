@@ -155,7 +155,7 @@ impl Precedence {
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,
             },
-            TokenKind::ParameterIdent => ParseRule {
+            TokenKind::Ident => ParseRule {
                 prefix: ParseFunctionKind::Variable,
                 infix: ParseFunctionKind::None,
                 precedence: Precedence::None,

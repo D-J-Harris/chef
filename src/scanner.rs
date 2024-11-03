@@ -40,10 +40,6 @@ impl<'src> Scanner<'src> {
         identifiers.insert("Utensils", TokenKind::UtensilsHeader);
         identifiers.insert("Steps", TokenKind::StepsHeader);
 
-        identifiers.insert("x", TokenKind::ParameterIdent);
-        identifiers.insert("y", TokenKind::ParameterIdent);
-        identifiers.insert("z", TokenKind::ParameterIdent);
-
         identifiers.insert("egg", TokenKind::VarIdent);
         identifiers.insert("flour", TokenKind::VarIdent);
         identifiers.insert("sugar", TokenKind::VarIdent);
@@ -121,10 +117,11 @@ impl<'src> Scanner<'src> {
             }
             self.current += 1;
         }
-        match self.identifiers.get(self.lexeme()) {
-            Some(kind) => self.make_token(*kind),
-            None => self.make_error_token("Invalid identifier."),
-        }
+        let kind = match self.identifiers.get(self.lexeme()) {
+            Some(kind) => *kind,
+            None => TokenKind::Ident,
+        };
+        self.make_token(kind)
     }
 
     fn make_string_token(&mut self) -> Token<'src> {
@@ -220,7 +217,7 @@ pub enum TokenKind {
     // Literals.
     VarIdent,
     FunIdent,
-    ParameterIdent,
+    Ident,
     String,
     Number,
     // Keywords.

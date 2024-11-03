@@ -1,0 +1,16 @@
+Recipe
+
+Utensils
+whisk with a, b, c, d and e
+    1. serve a add b add c add d add e
+    2. end
+
+
+bake with a, b, c, d, e and f
+    1. serve a add b add c add d add e add f
+    2. end
+
+Steps
+    1. taste whisk with 1, 2, 3, 4 and 5    // expect: 15
+    2. taste bake with 1, 2, 3, 4, 5 and 6  // expect: 21
+    3. end

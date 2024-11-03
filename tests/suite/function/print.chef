@@ -1,0 +1,9 @@
+Recipe
+
+Utensils
+whisk
+
+Steps
+    1. taste whisk  // expect: <fn whisk>
+    2. taste time   // expect: <native fn>
+    3. end

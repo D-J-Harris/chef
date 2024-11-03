@@ -1,0 +1,8 @@
+Recipe
+
+Utensils
+whisk with x and y
+
+Steps
+    1. whisk with 1  // expect runtime error: Expected 2 arguments but got 1.
+    2. end

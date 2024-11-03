@@ -138,8 +138,9 @@ impl<'src> Compiler<'src> {
 
     fn fun_declaration(&mut self) {
         self.consume(TokenKind::FunIdent, "Expect utensil identifier name.");
-        self.define_variable();
+        let name = self.previous.lexeme;
         self.function();
+        self.define_variable(name);
     }
 
     fn function(&mut self) {
@@ -153,23 +154,24 @@ impl<'src> Compiler<'src> {
             let mut order = ArgumentPosition::First;
             loop {
                 if function_arity == FUNCTION_ARITY_MAX_COUNT {
-                    self.error_at_current("Can't have more than 255 parameters.");
+                    self.error_at_current("Can't have more than 10 parameters.");
                     return;
                 }
                 function_arity += 1;
-                self.consume(TokenKind::ParameterIdent, "Expect parameter name.");
-                self.define_variable();
+                self.consume(TokenKind::Ident, "Expect parameter name.");
+                self.define_variable(self.previous.lexeme);
                 match self.current.kind {
                     TokenKind::Comma => {
+                        if order == ArgumentPosition::Last {
+                            self.error("Invalid ',' after final argument.");
+                        }
                         order = ArgumentPosition::Middle;
                         self.advance();
                         continue;
                     }
                     TokenKind::ParameterAnd => {
                         if order == ArgumentPosition::Last {
-                            self.error(
-                            "Can not use the 'and' list keyword multiple times, use ',' instead.",
-                        );
+                            self.error("Invalid 'and' after final argument.");
                         }
                         order = ArgumentPosition::Last;
                         self.advance();
@@ -177,14 +179,14 @@ impl<'src> Compiler<'src> {
                     }
                     TokenKind::Step => {
                         if order == ArgumentPosition::Middle {
-                            self.error("Function parameters should be a list where the final element is preceded by 'and'");
+                            self.error("Function parameters should be a list where the final element is preceded by 'and'.");
                         }
                         break;
                     }
-                    _ => {
-                        self.error("Expect ',' or 'and' to continue parameter list, or instructions to be a numbered list.");
-                        break;
-                    }
+                    _ => match order == ArgumentPosition::Middle {
+                        true => self.error_at_current("function argument list incomplete"),
+                        false => break,
+                    },
                 }
             }
         }
@@ -211,7 +213,7 @@ impl<'src> Compiler<'src> {
     fn var_declaration(&mut self) {
         self.consume(TokenKind::Var, "Expect 'set' ingredient identifier.");
         self.consume(TokenKind::VarIdent, "Expect ingredient identifier name.");
-        self.define_variable();
+        self.define_variable(self.previous.lexeme);
         if self.r#match(TokenKind::Equal) {
             self.expression();
         } else {
@@ -222,8 +224,7 @@ impl<'src> Compiler<'src> {
         }
     }
 
-    fn define_variable(&mut self) {
-        let name = self.previous.lexeme;
+    fn define_variable(&mut self, name: &'src str) {
         let mut has_match_name_error = false;
         for local_name in self.context.locals.iter().rev() {
             if *local_name == name {
@@ -642,7 +643,7 @@ impl<'src> Compiler<'src> {
             return;
         }
         let Some(argument_count) = self.argument_list() else {
-            self.error("Can't have more than 255 arguments.");
+            self.error("Can't have more than 10 arguments.");
             return;
         };
         self.emit(Opcode::Call as u8);
@@ -654,10 +655,10 @@ impl<'src> Compiler<'src> {
         let mut order = ArgumentPosition::First;
         loop {
             self.expression();
-            argument_count = match argument_count.checked_add(1) {
-                Some(count) => count,
-                None => return None,
-            };
+            if argument_count == FUNCTION_ARITY_MAX_COUNT {
+                return None;
+            }
+            argument_count += 1;
             match self.current.kind {
                 TokenKind::Comma => {
                     if order == ArgumentPosition::Last {
@@ -677,11 +678,14 @@ impl<'src> Compiler<'src> {
                 }
                 TokenKind::Step => {
                     if order == ArgumentPosition::Middle {
-                        self.error_at_current("function argument list should terminate with 'and' before final argument.");
+                        self.error_at_current("Function parameters should be a list where the final element is preceded by 'and'.");
                     }
                     break;
                 }
-                _ => break,
+                _ => match order == ArgumentPosition::Middle {
+                    true => self.error_at_current("function argument list incomplete"),
+                    false => break,
+                },
             }
         }
         Some(argument_count)

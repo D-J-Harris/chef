@@ -1,0 +1,32 @@
+Recipe
+// Recipe for the xth fibonacci number
+
+Ingredients
+set chocolate
+set banana
+set sugar
+set milk
+
+Utensils
+whisk with x
+    1. check x is 1
+        1. serve 1
+        2. end
+    2. check x is 2
+        1. serve 3
+        2. end
+    3. set chocolate to 1
+    4. set banana to 3
+    5. set sugar to x minus 1
+    6. while sugar above 1
+        1. set milk to 3 multiply banana minus chocolate
+        2. set chocolate to banana
+        3. set banana to milk
+        4. set sugar to sugar minus 1
+        5. end
+    7. serve milk
+    8. end
+
+Steps
+    1. taste whisk with 8  // expect: 987
+    2. end

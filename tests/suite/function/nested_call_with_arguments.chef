@@ -1,0 +1,18 @@
+Recipe
+
+Utensils
+whisk with x
+    1. serve x
+    2. end
+
+bake with x and y
+    1. serve whisk with x with y
+    2. end
+
+cook with x
+    1. taste x
+    2. end
+
+Steps
+    1. bake with cook and "hello world"  // expect: hello world
+    2. end
