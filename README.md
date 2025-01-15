@@ -6,15 +6,15 @@
 
 The language was created following completion of Part III of the book [Crafting Interpreters](https://craftinginterpreters.com/), porting the C bytecode interpreter into Rust (the implementation of Lox, with classes, closures etc. can be found on the [lox](https://github.com/D-J-Harris/chef/tree/lox) branch)
 
-In creating a grammar for a recipe-oriented language, I gained deeper insights into Pratt-parsing and stack-based compilation than the first pass through the book. I have written about the interesting challenges and alterations here (_TODO_)
+In creating a grammar for a recipe-oriented language, I gained deeper insights into Pratt-parsing and stack-based compilation than the first pass through the book. I have written about the interesting challenges and alterations [here](https://d-j-harris.github.io/chef-language/)
 
 ![Fibonacci Recipe](./assets/fib_recipe.png "Fibonacci Recipe")
 _Recipe for the nth fibonacci number_
 
 ## Features
 
-- Function support and basic control flow including if-statements and while-loops ([grammar here](./GRAMMAR.md)) (_TODO incomplete_)
-- Syntax highlighting is provided by the VSCode extension `chef-colouring` ([source here](./colouring/)) (_TODO finish and publish_)
+- Function support and basic control flow including if-statements and while-loops
+- Syntax highlighting is provided by the VSCode extension `chef-colouring` ([here](https://github.com/D-J-Harris/chef-colouring))
 
 ## Usage
 
